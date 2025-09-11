@@ -7,6 +7,7 @@ interface UseEmployeesParams {
   search?: string;
   department?: string;
   status?: string;
+  tabId?: string;
 }
 
 interface UseEmployeesReturn {
@@ -50,7 +51,7 @@ export const useEmployees = (params: UseEmployeesParams = {}): UseEmployeesRetur
     } finally {
       setLoading(false);
     }
-  }, [params.page, params.limit, params.search, params.department, params.status]);
+  }, [params.page, params.limit, params.search, params.department, params.status, params.tabId]);
 
   useEffect(() => {
     fetchEmployees();

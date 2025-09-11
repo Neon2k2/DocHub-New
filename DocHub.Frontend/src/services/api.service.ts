@@ -266,11 +266,11 @@ export interface EmailAnalyticsByEmployee {
 }
 
 export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
+  Success: boolean;
+  Data?: T;
+  Error?: {
+    Code: string;
+    Message: string;
     details?: string;
   };
 }
@@ -395,7 +395,7 @@ class ApiService {
   }
 
   // Authentication APIs
-  async login(credentials: { username: string; password: string }): Promise<ApiResponse<{
+  async login(credentials: { emailOrUsername: string; password: string }): Promise<ApiResponse<{
     token: string;
     refreshToken: string;
     user: UserRole;
@@ -443,8 +443,8 @@ class ApiService {
       body: JSON.stringify({ refreshToken }),
     });
 
-    if (response.success && response.data) {
-      const { token, refreshToken: newRefreshToken } = response.data;
+    if (response.Success && response.Data) {
+      const { token, refreshToken: newRefreshToken } = response.Data;
       
       // Update stored tokens
       localStorage.setItem('authToken', token);
@@ -476,6 +476,7 @@ class ApiService {
     search?: string;
     department?: string;
     status?: string;
+    tabId?: string;
   }): Promise<PaginatedResponse<Employee>> {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.set('page', params.page.toString());
@@ -483,8 +484,57 @@ class ApiService {
     if (params?.search) queryParams.set('search', params.search);
     if (params?.department) queryParams.set('department', params.department);
     if (params?.status) queryParams.set('status', params.status);
+    if (params?.tabId) queryParams.set('tabId', params.tabId);
 
-    return this.request<PaginatedResponse<Employee>>(`/er/employees?${queryParams}`);
+    const response = await this.request<ApiResponse<PagedResult<Employee>>>(`/er/employees?${queryParams}`);
+    
+    // Map backend response to frontend format
+    if (response.Success && response.Data) {
+      const backendData = response.Data;
+      
+      // Handle $values array from .NET serialization
+      let items: Employee[] = [];
+      if (backendData.Items) {
+        let rawItems: any[] = [];
+        if (Array.isArray(backendData.Items)) {
+          rawItems = backendData.Items;
+        } else if (backendData.Items.$values && Array.isArray(backendData.Items.$values)) {
+          rawItems = backendData.Items.$values;
+        }
+        
+        // Map backend employee data to frontend format
+        items = rawItems.map((emp: any) => ({
+          id: emp.Id || emp.id,
+          employeeId: emp.EmployeeId || emp.employeeId,
+          name: emp.Name || emp.name || `${emp.FirstName || emp.firstName || ''} ${emp.LastName || emp.lastName || ''}`.trim(),
+          email: emp.Email || emp.email || '',
+          phone: emp.Phone || emp.phone || '',
+          department: emp.Department || emp.department || '',
+          designation: emp.Position || emp.position || emp.Designation || emp.designation || '',
+          joiningDate: emp.JoiningDate || emp.joiningDate || '',
+          relievingDate: emp.RelievingDate || emp.relievingDate || undefined,
+          status: (emp.IsActive || emp.isActive) ? 'active' : 'inactive',
+          manager: emp.Manager || emp.manager || '',
+          location: emp.Location || emp.location || ''
+        }));
+      }
+      
+      return {
+        success: true,
+        data: {
+          items: items,
+          pagination: {
+            currentPage: backendData.PageNumber || 1,
+            totalPages: backendData.TotalPages || 1,
+            totalRecords: backendData.TotalCount || 0,
+            hasNext: (backendData.PageNumber || 1) < (backendData.TotalPages || 1),
+            hasPrevious: (backendData.PageNumber || 1) > 1
+          }
+        }
+      };
+    } else {
+      throw new Error(response.Error?.Message || 'Failed to fetch employees');
+    }
   }
 
   async getEmployee(id: string): Promise<ApiResponse<Employee>> {
@@ -622,16 +672,20 @@ class ApiService {
   }
 
   // Excel Data APIs
-  async uploadExcelFile(formData: FormData): Promise<ApiResponse<any>> {
+  async uploadExcelFile(formData: FormData, tabId: string): Promise<ApiResponse<any>> {
     // Debug logging
     console.log('Uploading Excel file with FormData:', {
       hasFile: formData.has('file'),
-      tabId: formData.get('tabId'),
+      tabId: tabId,
       description: formData.get('description'),
       metadata: formData.get('metadata')
     });
     
-    return this.request<ApiResponse<any>>('/er/excel/upload', {
+    if (!tabId) {
+      throw new Error('TabId is required for Excel upload');
+    }
+    
+    return this.request<ApiResponse<any>>(`/excel/tab/${tabId}`, {
       method: 'POST',
       body: formData,
       headers: {
@@ -641,11 +695,11 @@ class ApiService {
   }
 
   async getExcelDataForTab(tabId: string): Promise<ApiResponse<any>> {
-    return this.request<ApiResponse<any>>(`/er/excel/tab/${tabId}`);
+    return this.request<ApiResponse<any>>(`/excel/tab/${tabId}`);
   }
 
   async deleteExcelDataForTab(tabId: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/er/excel/tab/${tabId}`, {
+    return this.request<ApiResponse<void>>(`/excel/tab/${tabId}`, {
       method: 'DELETE',
     });
   }
@@ -701,7 +755,38 @@ class ApiService {
     if (params.employeeId) queryParams.append('employeeId', params.employeeId);
     if (params.approverId) queryParams.append('approverId', params.approverId);
 
-    return this.request<PaginatedResponse<DocumentRequest>>(`/documentrequests?${queryParams}`);
+    const response = await this.request<ApiResponse<PagedResult<DocumentRequest>>>(`/documentrequests?${queryParams}`);
+    
+    // Map backend response to frontend format
+    if (response.Success && response.Data) {
+      const backendData = response.Data;
+      
+      // Handle $values array from .NET serialization
+      let items: DocumentRequest[] = [];
+      if (backendData.Items) {
+        if (Array.isArray(backendData.Items)) {
+          items = backendData.Items;
+        } else if (backendData.Items.$values && Array.isArray(backendData.Items.$values)) {
+          items = backendData.Items.$values;
+        }
+      }
+      
+      return {
+        success: true,
+        data: {
+          items: items,
+          pagination: {
+            currentPage: backendData.PageNumber || 1,
+            totalPages: backendData.TotalPages || 1,
+            totalRecords: backendData.TotalCount || 0,
+            hasNext: (backendData.PageNumber || 1) < (backendData.TotalPages || 1),
+            hasPrevious: (backendData.PageNumber || 1) > 1
+          }
+        }
+      };
+    } else {
+      throw new Error(response.Error?.Message || 'Failed to fetch document requests');
+    }
   }
 
   async getDocumentRequest(id: string): Promise<ApiResponse<DocumentRequest>> {
@@ -1207,15 +1292,15 @@ class ApiService {
   // Dynamic System API Methods
   // Letter Type Management
   async getLetterTypeDefinitions(): Promise<ApiResponse<LetterTypeDefinition[]>> {
-    return this.request<ApiResponse<LetterTypeDefinition[]>>('/api/DynamicLetterType');
+    return this.request<ApiResponse<LetterTypeDefinition[]>>('/DynamicLetterType');
   }
 
   async getLetterTypeDefinition(id: string): Promise<ApiResponse<LetterTypeDefinition>> {
-    return this.request<ApiResponse<LetterTypeDefinition>>(`/api/DynamicLetterType/${id}`);
+    return this.request<ApiResponse<LetterTypeDefinition>>(`/DynamicLetterType/${id}`);
   }
 
   async createLetterTypeDefinition(data: Partial<LetterTypeDefinition>): Promise<ApiResponse<LetterTypeDefinition>> {
-    return this.request<ApiResponse<LetterTypeDefinition>>('/api/DynamicLetterType', {
+    return this.request<ApiResponse<LetterTypeDefinition>>('/DynamicLetterType', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -1240,7 +1325,7 @@ class ApiService {
   }
 
   async createDynamicField(data: Partial<DynamicField>): Promise<ApiResponse<DynamicField>> {
-    return this.request<ApiResponse<DynamicField>>('/api/DynamicField', {
+    return this.request<ApiResponse<DynamicField>>('/DynamicField', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -1273,21 +1358,21 @@ class ApiService {
       formData.append('options', JSON.stringify(request.options));
     }
 
-    return this.request<ApiResponse<ExcelUploadResponse>>('/api/DynamicExcel/upload', {
+    return this.request<ApiResponse<ExcelUploadResponse>>('/DynamicExcel/upload', {
       method: 'POST',
       body: formData
     });
   }
 
   async getFieldMappingSuggestions(letterTypeDefinitionId: string, excelHeaders: string[]): Promise<ApiResponse<FieldMapping[]>> {
-    return this.request<ApiResponse<FieldMapping[]>>('/api/DynamicExcel/field-mapping-suggestions', {
+    return this.request<ApiResponse<FieldMapping[]>>('/DynamicExcel/field-mapping-suggestions', {
       method: 'POST',
       body: JSON.stringify({ letterTypeDefinitionId, excelHeaders })
     });
   }
 
   async validateExcelData(letterTypeDefinitionId: string, data: Record<string, unknown>[]): Promise<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>> {
-    return this.request<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>>('/api/DynamicExcel/validate', {
+    return this.request<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>>('/DynamicExcel/validate', {
       method: 'POST',
       body: JSON.stringify({ letterTypeDefinitionId, data })
     });
@@ -1295,28 +1380,28 @@ class ApiService {
 
   // Dynamic Document Generation
   async generateDynamicDocuments(request: DynamicDocumentGenerationRequest): Promise<ApiResponse<DynamicDocumentGenerationResponse>> {
-    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/api/DynamicDocumentGeneration/generate-bulk', {
+    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/DynamicDocumentGeneration/generate-bulk', {
       method: 'POST',
       body: JSON.stringify(request)
     });
   }
 
   async generateSingleDocument(request: Omit<DynamicDocumentGenerationRequest, 'employeeIds'> & { employeeId: string }): Promise<ApiResponse<DynamicDocumentGenerationResponse>> {
-    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/api/DynamicDocumentGeneration/generate-single', {
+    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/DynamicDocumentGeneration/generate-single', {
       method: 'POST',
       body: JSON.stringify(request)
     });
   }
 
   async previewDocument(request: Omit<DynamicDocumentGenerationRequest, 'employeeIds'> & { employeeId: string }): Promise<ApiResponse<{ previewUrl: string; documentId: string }>> {
-    return this.request<ApiResponse<{ previewUrl: string; documentId: string }>>('/api/DynamicDocumentGeneration/preview', {
+    return this.request<ApiResponse<{ previewUrl: string; documentId: string }>>('/DynamicDocumentGeneration/preview', {
       method: 'POST',
       body: JSON.stringify(request)
     });
   }
 
   async validateDocumentGeneration(letterTypeDefinitionId: string, employeeIds: string[]): Promise<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>> {
-    return this.request<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>>('/api/DynamicDocumentGeneration/validate', {
+    return this.request<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>>('/DynamicDocumentGeneration/validate', {
       method: 'POST',
       body: JSON.stringify({ letterTypeDefinitionId, employeeIds })
     });
@@ -1324,14 +1409,14 @@ class ApiService {
 
   // Dynamic Email System
   async sendDynamicEmail(request: DynamicEmailRequest): Promise<ApiResponse<DynamicEmailResponse>> {
-    return this.request<ApiResponse<DynamicEmailResponse>>('/api/DynamicEmail/send', {
+    return this.request<ApiResponse<DynamicEmailResponse>>('/DynamicEmail/send', {
       method: 'POST',
       body: JSON.stringify(request)
     });
   }
 
   async sendBulkDynamicEmails(request: BulkDynamicEmailRequest): Promise<ApiResponse<BulkDynamicEmailResponse>> {
-    return this.request<ApiResponse<BulkDynamicEmailResponse>>('/api/DynamicEmail/send-bulk', {
+    return this.request<ApiResponse<BulkDynamicEmailResponse>>('/DynamicEmail/send-bulk', {
       method: 'POST',
       body: JSON.stringify(request)
     });
@@ -1358,7 +1443,7 @@ class ApiService {
   }
 
   async generateEmailPreview(request: DynamicEmailRequest): Promise<ApiResponse<{ subject: string; body: string; htmlBody: string; attachments: EmailAttachment[] }>> {
-    return this.request<ApiResponse<{ subject: string; body: string; htmlBody: string; attachments: EmailAttachment[] }>>('/api/DynamicEmail/preview', {
+    return this.request<ApiResponse<{ subject: string; body: string; htmlBody: string; attachments: EmailAttachment[] }>>('/DynamicEmail/preview', {
       method: 'POST',
       body: JSON.stringify(request)
     });

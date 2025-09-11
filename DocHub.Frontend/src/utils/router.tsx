@@ -29,7 +29,9 @@ const DynamicTabRenderer: React.FC<{ tabId: string }> = ({ tabId }) => {
   React.useEffect(() => {
     const loadTab = async () => {
       try {
+        console.log('DynamicTabRenderer: Loading tab with ID:', tabId);
         const tabData = await tabService.getActiveTabById(tabId);
+        console.log('DynamicTabRenderer: Tab data received:', tabData);
         setTab(tabData);
       } catch (error) {
         console.error('Failed to load tab:', error);

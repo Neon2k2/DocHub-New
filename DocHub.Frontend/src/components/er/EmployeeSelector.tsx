@@ -18,6 +18,7 @@ interface EmployeeSelectorProps {
   onGenerate?: (employees: Employee[]) => void;
   onSendEmail?: (employees: Employee[]) => void;
   showSelectedCount?: boolean;
+  tabId?: string;
 }
 
 export function EmployeeSelector({ 
@@ -25,7 +26,8 @@ export function EmployeeSelector({
   onSelectionChange, 
   onGenerate, 
   onSendEmail,
-  showSelectedCount = false
+  showSelectedCount = false,
+  tabId
 }: EmployeeSelectorProps) {
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
@@ -36,7 +38,8 @@ export function EmployeeSelector({
     search,
     department: departmentFilter === 'all' ? undefined : departmentFilter,
     status: statusFilter === 'all' ? undefined : statusFilter,
-    limit: 50
+    limit: 50,
+    tabId
   });
 
   const departments = Array.from(new Set(employees.map(emp => emp.department))).sort();
@@ -75,6 +78,9 @@ export function EmployeeSelector({
   };
 
   const getEmployeeInitials = (name: string) => {
+    if (!name || typeof name !== 'string') {
+      return '??';
+    }
     return name
       .split(' ')
       .map(part => part[0])

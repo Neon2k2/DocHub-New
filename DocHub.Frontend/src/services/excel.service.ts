@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import { apiService } from './api.service';
 
 export interface ExcelData {
@@ -23,24 +23,36 @@ class ExcelService {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const data = e.target?.result;
-          const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(data as ArrayBuffer);
           
-          if (jsonData.length === 0) {
+          const worksheet = workbook.worksheets[0];
+          if (!worksheet) {
+            throw new Error('Excel file has no worksheets');
+          }
+
+          const rows: any[][] = [];
+          worksheet.eachRow((row, rowNumber) => {
+            const rowData: any[] = [];
+            row.eachCell((cell, colNumber) => {
+              rowData[colNumber - 1] = cell.value;
+            });
+            rows.push(rowData);
+          });
+
+          if (rows.length === 0) {
             throw new Error('Excel file is empty');
           }
 
           // First row should be headers
-          const headers = jsonData[0] as string[];
-          const rows = jsonData.slice(1) as any[][];
+          const headers = rows[0].map(header => String(header || ''));
+          const dataRows = rows.slice(1);
 
           // Convert rows to objects
-          const dataObjects = rows.map(row => {
+          const dataObjects = dataRows.map(row => {
             const obj: any = {};
             headers.forEach((header, index) => {
               obj[header] = row[index] || '';
@@ -73,10 +85,10 @@ class ExcelService {
   /**
    * Upload Excel file to backend
    */
-  async uploadExcelFile(formData: FormData): Promise<ExcelUploadResult> {
+  async uploadExcelFile(formData: FormData, tabId: string): Promise<ExcelUploadResult> {
     try {
       // Upload to backend
-      const response = await apiService.uploadExcelFile(formData);
+      const response = await apiService.uploadExcelFile(formData, tabId);
       
       if (response.success) {
         return {
@@ -159,11 +171,42 @@ class ExcelService {
   /**
    * Export data to Excel
    */
-  exportToExcel(data: any[], headers: string[], fileName: string = 'export.xlsx'): void {
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
-    XLSX.writeFile(workbook, fileName);
+  async exportToExcel(data: any[], headers: string[], fileName: string = 'export.xlsx'): Promise<void> {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Sheet1');
+    
+    // Add headers
+    worksheet.addRow(headers);
+    
+    // Add data rows
+    data.forEach(row => {
+      const rowData = headers.map(header => row[header] || '');
+      worksheet.addRow(rowData);
+    });
+    
+    // Style the header row
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+    
+    // Auto-fit columns
+    worksheet.columns.forEach(column => {
+      column.width = 15;
+    });
+    
+    // Generate buffer and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    window.URL.revokeObjectURL(url);
   }
 }
 

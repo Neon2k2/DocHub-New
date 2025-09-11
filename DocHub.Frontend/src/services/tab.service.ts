@@ -62,26 +62,70 @@ class TabService {
   // Tab Management - Now using Dynamic Letter Types
   async getTabs(): Promise<DynamicTab[]> {
     try {
+      console.log('Fetching letter type definitions...');
       const response = await apiService.getLetterTypeDefinitions();
-      if (response.success && response.data) {
-        // Convert LetterTypeDefinition to DynamicTab format
-        return response.data.map(letterType => ({
-          id: letterType.id,
-          name: letterType.displayName,
-          description: letterType.description,
-          letterType: letterType.typeKey,
-          isActive: letterType.isActive,
-          createdAt: letterType.createdAt,
-          updatedAt: letterType.updatedAt,
+      console.log('API Response:', response);
+      
+      if (response.Success && response.Data) {
+        console.log('Raw API response Data:', response.Data);
+        console.log('Data type:', typeof response.Data);
+        console.log('Data keys:', Object.keys(response.Data));
+        
+        // Handle different data structures - could be array or object with array property
+        let letterTypes = response.Data;
+        
+        // If Data is an object, check if it has an array property
+        if (!Array.isArray(response.Data) && typeof response.Data === 'object') {
+          // Check common array property names
+          if (Array.isArray(response.Data.items)) {
+            letterTypes = response.Data.items;
+          } else if (Array.isArray(response.Data.data)) {
+            letterTypes = response.Data.data;
+          } else if (Array.isArray(response.Data.results)) {
+            letterTypes = response.Data.results;
+          } else if (Array.isArray(response.Data.$values)) {
+            // Handle .NET serialization format
+            letterTypes = response.Data.$values;
+            console.log('Found $values array with', letterTypes.length, 'items');
+          } else {
+            console.warn('Data is not an array and no known array property found:', Object.keys(response.Data));
+            return [];
+          }
+        }
+        
+        if (Array.isArray(letterTypes)) {
+          console.log('Converting letter types to tabs:', letterTypes.length, 'items');
+          console.log('First letter type sample:', letterTypes[0]);
+          // Convert LetterTypeDefinition to DynamicTab format
+          return letterTypes.map(letterType => ({
+          id: letterType.Id || letterType.id,
+          name: letterType.DisplayName || letterType.displayName,
+          description: letterType.Description || letterType.description,
+          letterType: letterType.TypeKey || letterType.typeKey,
+          isActive: letterType.IsActive === 1 || letterType.IsActive === true || letterType.isActive === true,
+          createdAt: letterType.CreatedAt || letterType.createdAt,
+          updatedAt: letterType.UpdatedAt || letterType.updatedAt,
           metadata: {
-            templateConfig: letterType.fieldConfiguration ? JSON.parse(letterType.fieldConfiguration) : {},
-            customFields: letterType.fields || []
+            templateConfig: (letterType.FieldConfiguration || letterType.fieldConfiguration) ? 
+              JSON.parse(letterType.FieldConfiguration || letterType.fieldConfiguration) : {},
+            customFields: letterType.Fields || letterType.fields || []
           },
           letterTypeDefinition: letterType,
-          fields: letterType.fields || []
+          fields: letterType.Fields || letterType.fields || []
         }));
+        } else {
+          console.warn('Letter types data is not an array:', letterTypes);
+          return [];
+        }
+      } else {
+        console.warn('No data received from getLetterTypeDefinitions API:', {
+          Success: response.Success,
+          Data: response.Data,
+          DataType: typeof response.Data,
+          IsArray: Array.isArray(response.Data)
+        });
+        return [];
       }
-      return [];
     } catch (error) {
       console.error('Failed to load tabs:', error);
       return [];
@@ -100,24 +144,37 @@ class TabService {
 
   async getActiveTabById(id: string): Promise<DynamicTab | null> {
     try {
+      console.log('getActiveTabById: Fetching tab with ID:', id);
       const response = await apiService.getLetterTypeDefinition(id);
-      if (response.success && response.data && response.data.isActive) {
-        const letterType = response.data;
-        return {
-          id: letterType.id,
-          name: letterType.displayName,
-          description: letterType.description,
-          letterType: letterType.typeKey,
-          isActive: letterType.isActive,
-          createdAt: letterType.createdAt,
-          updatedAt: letterType.updatedAt,
-          metadata: {
-            templateConfig: letterType.fieldConfiguration ? JSON.parse(letterType.fieldConfiguration) : {},
-            customFields: letterType.fields || []
-          },
-          letterTypeDefinition: letterType,
-          fields: letterType.fields || []
-        };
+      console.log('getActiveTabById: API response:', response);
+      
+      if (response.Success && response.Data) {
+        const letterType = response.Data;
+        const isActive = letterType.IsActive === 1 || letterType.IsActive === true || letterType.isActive === true;
+        
+        if (isActive) {
+          const mappedTab = {
+            id: letterType.Id || letterType.id,
+            name: letterType.DisplayName || letterType.displayName,
+            description: letterType.Description || letterType.description,
+            letterType: letterType.TypeKey || letterType.typeKey,
+            isActive: isActive,
+            createdAt: letterType.CreatedAt || letterType.createdAt,
+            updatedAt: letterType.UpdatedAt || letterType.updatedAt,
+            metadata: {
+              templateConfig: (letterType.FieldConfiguration || letterType.fieldConfiguration) ? 
+                JSON.parse(letterType.FieldConfiguration || letterType.fieldConfiguration) : {},
+              customFields: letterType.Fields || letterType.fields || []
+            },
+            letterTypeDefinition: letterType,
+            fields: letterType.Fields || letterType.fields || []
+          };
+          
+          console.log('getActiveTabById: Mapped tab:', mappedTab);
+          return mappedTab;
+        } else {
+          console.warn('getActiveTabById: Tab is not active:', letterType);
+        }
       }
       return null;
     } catch (error) {
@@ -128,20 +185,34 @@ class TabService {
 
   async createTab(tabData: Omit<DynamicTab, 'id' | 'createdAt' | 'updatedAt'>): Promise<DynamicTab> {
     try {
-      // Transform the data to match LetterTypeDefinition format
+      // Check if a tab with the same name already exists
+      const existingTabs = await this.getTabs();
+      const duplicateTab = existingTabs.find(tab => 
+        tab.name.toLowerCase() === tabData.name.toLowerCase()
+      );
+      
+      if (duplicateTab) {
+        throw new Error(`A tab with the name "${tabData.name}" already exists`);
+      }
+
+      // Generate a unique key to avoid duplicates
+      const uniqueKey = `${tabData.letterType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Transform the data to match LetterTypeDefinition format (PascalCase for backend)
       const createRequest = {
-        typeKey: tabData.letterType,
-        displayName: tabData.name,
-        description: tabData.description,
-        isActive: tabData.isActive,
-        fieldConfiguration: tabData.metadata?.templateConfig ? JSON.stringify(tabData.metadata.templateConfig) : undefined
+        TypeKey: uniqueKey,
+        DisplayName: tabData.name,
+        Description: tabData.description,
+        IsActive: tabData.isActive,
+        Module: 'ER', // Default to ER module
+        FieldConfiguration: tabData.metadata?.templateConfig ? JSON.stringify(tabData.metadata.templateConfig) : undefined
       };
 
       const response = await apiService.createLetterTypeDefinition(createRequest);
-      if (response.success && response.data) {
-        console.log('Created new letter type:', response.data.displayName);
+      if (response.Success && response.Data) {
+        console.log('Created new letter type:', response.Data.displayName);
         // Convert back to DynamicTab format
-        const letterType = response.data;
+        const letterType = response.Data;
         return {
           id: letterType.id,
           name: letterType.displayName,
@@ -158,7 +229,7 @@ class TabService {
           fields: letterType.fields || []
         };
       }
-      throw new Error(response.error?.message || 'Failed to create letter type');
+      throw new Error(response.Error?.Message || 'Failed to create letter type');
     } catch (error) {
       console.error('Failed to create tab:', error);
       throw error;
@@ -180,10 +251,10 @@ class TabService {
       }
 
       const response = await apiService.updateLetterTypeDefinition(id, updateRequest);
-      if (response.success && response.data) {
-        console.log('Updated letter type:', response.data.displayName);
+      if (response.Success && response.Data) {
+        console.log('Updated letter type:', response.Data.displayName);
         // Convert back to DynamicTab format
-        const letterType = response.data;
+        const letterType = response.Data;
         return {
           id: letterType.id,
           name: letterType.displayName,
@@ -210,7 +281,7 @@ class TabService {
   async deleteTab(id: string): Promise<boolean> {
     try {
       const response = await apiService.deleteLetterTypeDefinition(id);
-      if (response.success) {
+      if (response.Success) {
         console.log('Deleted letter type with ID:', id);
         return true;
       }
@@ -229,7 +300,7 @@ class TabService {
   async permanentlyDeleteTab(id: string): Promise<boolean> {
     try {
       const response = await apiService.deleteDynamicTab(id);
-      if (response.success) {
+      if (response.Success) {
         console.log('Permanently deleted tab:', id);
         return true;
       }
@@ -246,9 +317,9 @@ class TabService {
   async getAllTabs(): Promise<DynamicTab[]> {
     try {
       const response = await apiService.getLetterTypeDefinitions();
-      if (response.success && response.data) {
+      if (response.Success && response.Data && Array.isArray(response.Data)) {
         // Convert LetterTypeDefinition to DynamicTab format
-        return response.data.map(letterType => ({
+        return response.Data.map(letterType => ({
           id: letterType.id,
           name: letterType.displayName,
           description: letterType.description,
@@ -264,6 +335,7 @@ class TabService {
           fields: letterType.fields || []
         }));
       }
+      console.warn('No data received from getLetterTypeDefinitions API or data is not an array:', response);
       return [];
     } catch (error) {
       console.error('Failed to load all tabs:', error);

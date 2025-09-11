@@ -20,6 +20,7 @@ export function TabManagement() {
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingTab, setEditingTab] = useState<DynamicTab | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -56,12 +57,16 @@ export function TabManagement() {
   const handleCreateTab = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (isSubmitting) return; // Prevent multiple submissions
+    
     if (!formData.name || !formData.description || !formData.letterType) {
       toast.error('Please fill in all required fields');
       return;
     }
     
     try {
+      setIsSubmitting(true);
+      
       // Create metadata object with data source type configuration
       const metadata = {
         dataSourceType: dataSource, // Store the type of data source this tab will use
@@ -89,6 +94,8 @@ export function TabManagement() {
     } catch (error: any) {
       console.error('Failed to create tab:', error);
       toast.error(error.message || 'Failed to create tab');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -489,8 +496,15 @@ export function TabManagement() {
               </div>
               
               <div className="flex gap-3 pt-4">
-                <Button type="submit" className="flex-1">
-                  {editingTab ? 'Update Tab' : 'Create Tab'}
+                <Button type="submit" className="flex-1" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loading className="h-4 w-4 mr-2" />
+                      {editingTab ? 'Updating...' : 'Creating...'}
+                    </>
+                  ) : (
+                    editingTab ? 'Update Tab' : 'Create Tab'
+                  )}
                 </Button>
                 <Button 
                   type="button" 

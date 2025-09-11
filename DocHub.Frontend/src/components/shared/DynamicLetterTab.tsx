@@ -107,12 +107,14 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       setTemplates(templatesData);
       setSignatures(signaturesData);
 
-      // Load Excel data if this is an Excel-type tab
-      if (dataSourceType === 'excel') {
+      // Load Excel data for this tab (if any exists)
+      try {
         const existingData = await excelService.getExcelDataForTab(tab.id);
         if (existingData) {
           setExcelData(existingData);
         }
+      } catch (error) {
+        console.log('No existing Excel data found for tab:', tab.id);
       }
     } catch (error) {
       console.error('Failed to load tab data:', error);
@@ -368,33 +370,42 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
         children={
           <div className="space-y-6">
             {/* Data Source Actions */}
-            {dataSourceType === 'excel' && (
-              <Card className="glass-panel border-glass-border">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <FileSpreadsheet className="h-5 w-5 text-green-500" />
-                      <div>
-                        <h3 className="font-semibold">Excel Data Source</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {excelData 
-                            ? `Loaded ${excelData.data.length} rows from ${excelData.fileName}`
-                            : 'No Excel data uploaded yet'
-                          }
-                        </p>
-                      </div>
+            <Card className="glass-panel border-glass-border">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Database className="h-5 w-5 text-blue-500" />
+                    <div>
+                      <h3 className="font-semibold">Employee Data</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {dataSourceType === 'excel' && excelData
+                          ? `Loaded ${excelData.data.length} rows from ${excelData.fileName}`
+                          : 'Upload Excel file to populate employee data for this tab'
+                        }
+                      </p>
                     </div>
+                  </div>
+                  <div className="flex gap-2">
                     <Button
                       onClick={() => setShowExcelUpload(true)}
-                      className="bg-green-600 hover:bg-green-700 text-white"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
                     >
                       <Upload className="h-4 w-4 mr-2 text-white" />
                       {excelData ? 'Upload New File' : 'Upload Excel File'}
                     </Button>
+                    {excelData && (
+                      <Button
+                        onClick={() => setExcelData(null)}
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Clear Data
+                      </Button>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                </div>
+              </CardContent>
+            </Card>
 
             {dataSourceType === 'database' && (
               <Card className="glass-panel border-glass-border">
@@ -529,7 +540,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             )}
 
             {/* Excel Data Table */}
-            {dataSourceType === 'excel' && excelData && (
+            {excelData && (
               <Card className="glass-panel border-glass-border">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -576,6 +587,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
               onSelectionChange={setSelectedEmployees}
               onGenerate={handleGenerate}
               onSendEmail={handleSendEmail}
+              tabId={tab.id}
             />
           </div>
         }

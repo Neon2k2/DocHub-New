@@ -22,21 +22,21 @@ export interface UserRole {
 }
 
 export function Login() {
-  const [username, setUsername] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
   const { login, isLoading, error } = useAuth();
 
   const handleLogin = async () => {
-    if (!username || !password) {
-      setLocalError('Please enter both username and password');
+    if (!emailOrUsername || !password) {
+      setLocalError('Please enter both email/username and password');
       return;
     }
 
     setLocalError('');
     
     try {
-      await login({ username, password });
+      await login({ emailOrUsername, password });
     } catch (err: any) {
       setLocalError(err.message || 'Login failed');
     }
@@ -73,12 +73,12 @@ export function Login() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="emailOrUsername">Email or Username</Label>
               <Input
-                id="username"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="emailOrUsername"
+                placeholder="Enter your email or username"
+                value={emailOrUsername}
+                onChange={(e) => setEmailOrUsername(e.target.value)}
                 className="glass-panel border-glass-border"
                 disabled={isLoading}
               />

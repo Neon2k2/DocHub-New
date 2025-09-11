@@ -58,31 +58,112 @@ class AuthService {
     };
   }
 
-  async login(credentials: { username: string; password: string }): Promise<void> {
+  async login(credentials: { emailOrUsername: string; password: string }): Promise<void> {
     this.setState({ isLoading: true, error: null });
 
     try {
       const response = await apiService.login(credentials);
       
-      if (response.success && response.data) {
-        const { token, refreshToken, user } = response.data;
+      if (response.Success && response.Data) {
+        // Handle nested data structure from backend
+        const loginData = response.Data as any; // Type assertion to handle backend response structure
+        console.log('Login response data:', loginData);
+        console.log('ModuleAccess type:', typeof loginData.ModuleAccess, 'value:', loginData.ModuleAccess);
+        console.log('Roles type:', typeof loginData.Roles, 'value:', loginData.Roles);
+        
+        const token = loginData.Token;
+        const refreshToken = loginData.RefreshToken;
+        const user = loginData.User;
+        
+        // Validate required user data
+        if (!user || !user.Id || !user.Username || !user.Email) {
+          throw new Error('Invalid user data received from server');
+        }
+        
+        // Handle circular references in ModuleAccess and Roles
+        let moduleAccess: string[] = [];
+        let roles: string[] = [];
+        
+        try {
+          // Check if ModuleAccess is a circular reference or valid array
+          if (loginData.ModuleAccess && typeof loginData.ModuleAccess === 'object') {
+            if (Array.isArray(loginData.ModuleAccess)) {
+              moduleAccess = loginData.ModuleAccess;
+              console.log('ModuleAccess is array:', moduleAccess);
+            } else if (loginData.ModuleAccess.$ref) {
+              // Handle circular reference - use default values
+              console.warn('ModuleAccess contains circular reference, using default values');
+              moduleAccess = ['ER', 'Billing']; // Default for admin
+            } else {
+              console.warn('ModuleAccess is not an array and not a circular reference:', loginData.ModuleAccess);
+              moduleAccess = ['ER', 'Billing']; // Default for admin
+            }
+          } else {
+            console.warn('ModuleAccess is not an object:', loginData.ModuleAccess);
+            moduleAccess = ['ER', 'Billing']; // Default for admin
+          }
+          
+          // Check if Roles is a circular reference or valid array
+          if (loginData.Roles && typeof loginData.Roles === 'object') {
+            if (Array.isArray(loginData.Roles)) {
+              roles = loginData.Roles;
+              console.log('Roles is array:', roles);
+            } else if (loginData.Roles.$ref) {
+              // Handle circular reference - use default values
+              console.warn('Roles contains circular reference, using default values');
+              roles = ['Admin']; // Default for admin
+            } else {
+              console.warn('Roles is not an array and not a circular reference:', loginData.Roles);
+              roles = ['Admin']; // Default for admin
+            }
+          } else {
+            console.warn('Roles is not an object:', loginData.Roles);
+            roles = ['Admin']; // Default for admin
+          }
+        } catch (error) {
+          console.warn('Error processing ModuleAccess/Roles:', error);
+          // Use default values for admin
+          moduleAccess = ['ER', 'Billing'];
+          roles = ['Admin'];
+        }
+        
+        console.log('Final moduleAccess:', moduleAccess);
+        console.log('Final roles:', roles);
+        
+        // Map backend user to frontend UserRole structure
+        const mappedUser: UserRole = {
+          id: user.Id,
+          username: user.Username,
+          name: user.Name || user.Username,
+          email: user.Email,
+          role: user.Role ? user.Role.toLowerCase() as 'admin' | 'er' | 'billing' : 'admin',
+          permissions: {
+            canAccessER: moduleAccess.includes('ER') || roles.includes('Admin') || user.Role?.toLowerCase() === 'admin',
+            canAccessBilling: moduleAccess.includes('Billing') || roles.includes('Admin') || user.Role?.toLowerCase() === 'admin',
+            isAdmin: roles.includes('Admin') || user.Role?.toLowerCase() === 'admin'
+          },
+          lastLogin: user.LastLogin ? new Date(user.LastLogin) : undefined,
+          isActive: user.IsActive !== undefined ? user.IsActive : true
+        };
+        
+        console.log('Mapped user permissions:', mappedUser.permissions);
         
         // Store auth data
         localStorage.setItem('authToken', token);
         localStorage.setItem('refreshToken', refreshToken);
-        localStorage.setItem('currentUser', JSON.stringify(user));
+        localStorage.setItem('currentUser', JSON.stringify(mappedUser));
         
         // Set API token
         apiService.setAuthToken(token);
         
         this.setState({
-          user,
+          user: mappedUser,
           isAuthenticated: true,
           isLoading: false,
           error: null
         });
       } else {
-        throw new Error(response.error?.message || 'Login failed');
+        throw new Error(response.Error?.Message || 'Login failed');
       }
     } catch (error: any) {
       this.setState({

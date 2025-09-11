@@ -78,7 +78,6 @@ export function ExcelUploadDialog({
       // Create FormData for file upload
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('tabId', tabId);
       formData.append('description', description || '');
       formData.append('metadata', JSON.stringify({
         headers: previewData.headers,
@@ -87,7 +86,7 @@ export function ExcelUploadDialog({
       }));
 
       // Upload to backend
-      const response = await excelService.uploadExcelFile(formData);
+      const response = await excelService.uploadExcelFile(formData, tabId);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
