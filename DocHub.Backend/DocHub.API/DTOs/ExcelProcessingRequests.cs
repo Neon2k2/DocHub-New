@@ -29,3 +29,21 @@ public class ExcelFieldMappingResult
     public List<string> UnmappedFields { get; set; } = new();
     public List<string> Suggestions { get; set; } = new();
 }
+
+public class ExcelTemplateResult
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public List<string> TemplateData { get; set; } = new();
+}
+
+public class FieldMapping
+{
+    public Guid FieldId { get; set; }
+    public string FieldKey { get; set; } = string.Empty;
+    public string FieldName { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public bool IsRequired { get; set; }
+    public string? MappedColumn { get; set; }
+    public double Confidence { get; set; }
+}

@@ -28,17 +28,18 @@ public class AuthService : IAuthService
     {
         try
         {
+            // Try to find user by email or username
             var user = await _context.Users
                 .Include(u => u.UserRoles)
                     .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Email == request.Email && u.Status == "Active");
+                .FirstOrDefaultAsync(u => (u.Email == request.EmailOrUsername || u.Username == request.EmailOrUsername) && u.Status == "Active");
 
             if (user == null || !VerifyPassword(request.Password, user.PasswordHash))
             {
                 return new AuthResult
                 {
                     Success = false,
-                    Message = "Invalid email or password"
+                    Message = "Invalid email/username or password"
                 };
             }
 
@@ -59,18 +60,19 @@ public class AuthService : IAuthService
                 RefreshToken = refreshToken,
                 User = new UserSummary
                 {
-                    Id = user.Id,
+                    Id = user.Id.ToString(),
                     Username = user.Username,
+                    Name = $"{user.FirstName} {user.LastName}".Trim(),
                     Email = user.Email,
-                    FirstName = user.FirstName,
-                    LastName = user.LastName,
+                    Role = roles.FirstOrDefault() ?? "User",
                     Phone = user.Phone,
                     Status = user.Status,
                     IsEmailVerified = user.IsEmailVerified,
-                    LastLoginAt = user.LastLoginAt,
+                    LastLogin = user.LastLoginAt,
                     CreatedAt = user.CreatedAt,
                     Roles = roles,
-                    ModuleAccess = moduleAccess
+                    ModuleAccess = moduleAccess,
+                    IsActive = user.Status == "Active"
                 },
                 Roles = roles,
                 ModuleAccess = moduleAccess,
@@ -79,7 +81,7 @@ public class AuthService : IAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during login for email: {Email}", request.Email);
+            _logger.LogError(ex, "Error during login for email/username: {EmailOrUsername}", request.EmailOrUsername);
             return new AuthResult
             {
                 Success = false,
@@ -141,17 +143,18 @@ public class AuthService : IAuthService
                 Token = token,
                 User = new UserSummary
                 {
-                    Id = user.Id,
+                    Id = user.Id.ToString(),
                     Username = user.Username,
+                    Name = $"{user.FirstName} {user.LastName}".Trim(),
                     Email = user.Email,
-                    FirstName = user.FirstName,
-                    LastName = user.LastName,
+                    Role = roles.FirstOrDefault() ?? "User",
                     Phone = user.Phone,
                     Status = user.Status,
                     IsEmailVerified = user.IsEmailVerified,
                     CreatedAt = user.CreatedAt,
                     Roles = roles,
-                    ModuleAccess = moduleAccess
+                    ModuleAccess = moduleAccess,
+                    IsActive = user.Status == "Active"
                 },
                 Roles = roles,
                 ModuleAccess = moduleAccess,
@@ -216,18 +219,19 @@ public class AuthService : IAuthService
 
             return new UserSummary
             {
-                Id = user.Id,
+                Id = user.Id.ToString(),
                 Username = user.Username,
+                Name = $"{user.FirstName} {user.LastName}".Trim(),
                 Email = user.Email,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
+                Role = roles.FirstOrDefault() ?? "User",
                 Phone = user.Phone,
                 Status = user.Status,
                 IsEmailVerified = user.IsEmailVerified,
-                LastLoginAt = user.LastLoginAt,
+                LastLogin = user.LastLoginAt,
                 CreatedAt = user.CreatedAt,
                 Roles = roles,
-                ModuleAccess = moduleAccess
+                ModuleAccess = moduleAccess,
+                IsActive = user.Status == "Active"
             };
         }
         catch

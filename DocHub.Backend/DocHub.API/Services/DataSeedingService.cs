@@ -22,17 +22,14 @@ public class DataSeedingService : IDataSeedingService
         {
             _logger.LogInformation("Starting data seeding...");
 
-            // Seed Roles
+            // Seed Roles (only Admin role needed)
             await SeedRolesAsync();
             
             // Seed Admin User
             await SeedAdminUserAsync();
             
-            // Seed Modules
-            await SeedModulesAsync();
-            
-            // Seed Letter Types
-            await SeedLetterTypesAsync();
+            // Clear existing tab employee data to start fresh
+            await ClearTabEmployeeDataAsync();
 
             _logger.LogInformation("Data seeding completed successfully");
         }
@@ -45,24 +42,13 @@ public class DataSeedingService : IDataSeedingService
 
     private async Task SeedRolesAsync()
     {
-        var roles = new[]
+        // Only seed the Admin role
+        if (!await _context.Roles.AnyAsync(r => r.Name == "Admin"))
         {
-            new Role { Name = "Admin", Description = "System Administrator", Status = "Active" },
-            new Role { Name = "User", Description = "Regular User", Status = "Active" },
-            new Role { Name = "ER_Manager", Description = "ER Module Manager", Status = "Active" },
-            new Role { Name = "Billing_Manager", Description = "Billing Module Manager", Status = "Active" },
-            new Role { Name = "Timesheet_Manager", Description = "Timesheet Module Manager", Status = "Active" }
-        };
-
-        foreach (var role in roles)
-        {
-            if (!await _context.Roles.AnyAsync(r => r.Name == role.Name))
-            {
-                _context.Roles.Add(role);
-            }
+            var adminRole = new Role { Name = "Admin", Description = "System Administrator", Status = "Active" };
+            _context.Roles.Add(adminRole);
+            await _context.SaveChangesAsync();
         }
-
-        await _context.SaveChangesAsync();
     }
 
     private async Task SeedAdminUserAsync()
@@ -99,72 +85,23 @@ public class DataSeedingService : IDataSeedingService
         _logger.LogInformation("Admin user created: admin@collabera.com");
     }
 
-    private async Task SeedModulesAsync()
+    private async Task ClearTabEmployeeDataAsync()
     {
-        var modules = new[]
+        try
         {
-            new Module { Name = "ER", DisplayName = "Employee Relations", Description = "Employee Relations Module", IsActive = true },
-            new Module { Name = "Billing", DisplayName = "Billing", Description = "Billing Module", IsActive = true },
-            new Module { Name = "Timesheet", DisplayName = "Timesheet", Description = "Timesheet Module", IsActive = true }
-        };
-
-        foreach (var module in modules)
-        {
-            if (!await _context.Modules.AnyAsync(m => m.Name == module.Name))
+            var existingData = await _context.TabEmployeeData.ToListAsync();
+            if (existingData.Any())
             {
-                _context.Modules.Add(module);
+                _context.TabEmployeeData.RemoveRange(existingData);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Cleared {Count} existing tab employee records", existingData.Count);
             }
         }
-
-        await _context.SaveChangesAsync();
-    }
-
-    private async Task SeedLetterTypesAsync()
-    {
-        var erModule = await _context.Modules.FirstAsync(m => m.Name == "ER");
-        
-        var letterTypes = new[]
+        catch (Exception ex)
         {
-            new LetterTypeDefinition
-            {
-                ModuleId = erModule.Id,
-                TypeKey = "ER_Offer_Letter",
-                DisplayName = "Offer Letter",
-                Description = "Employee offer letter template",
-                DataSourceType = "Database",
-                FieldConfiguration = "{}",
-                IsActive = true
-            },
-            new LetterTypeDefinition
-            {
-                ModuleId = erModule.Id,
-                TypeKey = "ER_Appointment_Letter",
-                DisplayName = "Appointment Letter",
-                Description = "Employee appointment letter template",
-                DataSourceType = "Database",
-                FieldConfiguration = "{}",
-                IsActive = true
-            },
-            new LetterTypeDefinition
-            {
-                ModuleId = erModule.Id,
-                TypeKey = "ER_Experience_Certificate",
-                DisplayName = "Experience Certificate",
-                Description = "Employee experience certificate template",
-                DataSourceType = "Database",
-                FieldConfiguration = "{}",
-                IsActive = true
-            }
-        };
-
-        foreach (var letterType in letterTypes)
-        {
-            if (!await _context.LetterTypeDefinitions.AnyAsync(lt => lt.TypeKey == letterType.TypeKey))
-            {
-                _context.LetterTypeDefinitions.Add(letterType);
-            }
+            _logger.LogError(ex, "Error clearing tab employee data");
+            // Don't throw - this is not critical
         }
-
-        await _context.SaveChangesAsync();
     }
+
 }

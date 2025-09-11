@@ -8,6 +8,8 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// DocumentFormat.OpenXml is used for Excel processing - no license required
+
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -24,6 +26,7 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.PropertyNamingPolicy = null;
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
     });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -42,7 +45,6 @@ builder.Services.AddAutoMapper(typeof(Program));
 
 // Services
 builder.Services.AddScoped<ILetterTypeService, LetterTypeService>();
-builder.Services.AddScoped<IDynamicFieldService, DynamicFieldService>();
 builder.Services.AddScoped<IDocumentGenerationService, DocumentGenerationService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
@@ -55,6 +57,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDataSeedingService, DataSeedingService>();
+builder.Services.AddScoped<ITabEmployeeService, TabEmployeeService>();
 
 // SignalR
 builder.Services.AddSignalR();

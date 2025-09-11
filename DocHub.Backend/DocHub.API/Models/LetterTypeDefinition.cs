@@ -35,8 +35,6 @@ public class LetterTypeDefinition
     
     // Navigation properties
     public virtual Module? Module { get; set; }
-    public virtual ICollection<DynamicField> Fields { get; set; } = new List<DynamicField>();
-    public virtual ICollection<DynamicField> DynamicFields { get; set; } = new List<DynamicField>();
     public virtual ICollection<GeneratedDocument> GeneratedDocuments { get; set; } = new List<GeneratedDocument>();
     public virtual ICollection<EmailJob> EmailJobs { get; set; } = new List<EmailJob>();
     public virtual ICollection<ExcelUpload> ExcelUploads { get; set; } = new List<ExcelUpload>();

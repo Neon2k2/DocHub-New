@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using DocHub.API.Services.Interfaces;
 using DocHub.API.DTOs;
 using DocHub.API.Extensions;
+using System.Text.Json;
 
 namespace DocHub.API.Controllers;
 
@@ -270,6 +271,230 @@ public class ExcelController : ControllerBase
     }
 
     /// <summary>
+    /// Get Excel data for a specific tab
+    /// </summary>
+    [HttpGet("tab/{tabId}")]
+    public async Task<ActionResult<ApiResponse<object>>> GetExcelDataForTab(Guid tabId)
+    {
+        try
+        {
+            // Get tab employee service
+            var tabEmployeeService = HttpContext.RequestServices.GetRequiredService<ITabEmployeeService>();
+            
+            // Get employees for this tab
+            var employees = await tabEmployeeService.GetEmployeesByTabIdAsync(tabId);
+            
+            if (!employees.Any())
+            {
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        headers = new string[0],
+                        data = new object[0],
+                        fileName = "",
+                        fileSize = 0,
+                        uploadedAt = DateTime.UtcNow,
+                        rowCount = 0
+                    }
+                });
+            }
+
+            // Convert employees to Excel-like format
+            var headers = new List<string> { "EmployeeId", "EmployeeName", "Email", "Phone", "Department", "Position" };
+            var data = new List<Dictionary<string, object>>();
+
+            foreach (var employee in employees)
+            {
+                var row = new Dictionary<string, object>
+                {
+                    ["EmployeeId"] = employee.EmployeeId ?? "",
+                    ["EmployeeName"] = employee.EmployeeName ?? "",
+                    ["Email"] = employee.Email ?? "",
+                    ["Phone"] = employee.Phone ?? "",
+                    ["Department"] = employee.Department ?? "",
+                    ["Position"] = employee.Position ?? ""
+                };
+
+                // Add custom fields if they exist
+                if (!string.IsNullOrEmpty(employee.CustomFields))
+                {
+                    try
+                    {
+                        var customFields = JsonSerializer.Deserialize<Dictionary<string, object>>(employee.CustomFields);
+                        if (customFields != null)
+                        {
+                            foreach (var kvp in customFields)
+                            {
+                                if (!headers.Contains(kvp.Key))
+                                {
+                                    headers.Add(kvp.Key);
+                                }
+                                row[kvp.Key] = kvp.Value ?? "";
+                            }
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse custom fields for employee {EmployeeId}", employee.Id);
+                    }
+                }
+
+                data.Add(row);
+            }
+
+            return Ok(new ApiResponse<object>
+            {
+                Success = true,
+                Data = new
+                {
+                    headers = headers,
+                    data = data,
+                    fileName = "Uploaded Data",
+                    fileSize = 0,
+                    uploadedAt = employees.FirstOrDefault()?.CreatedAt ?? DateTime.UtcNow,
+                    rowCount = data.Count
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Excel data for tab {TabId}", tabId);
+            return StatusCode(500, new ApiResponse<object>
+            {
+                Success = false,
+                Error = new ApiError
+                {
+                    Code = "INTERNAL_ERROR",
+                    Message = "Failed to get Excel data for tab"
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Upload Excel data for a specific tab
+    /// </summary>
+    [HttpPost("tab/{tabId}")]
+    public async Task<ActionResult<ApiResponse<object>>> UploadExcelDataForTab(
+        Guid tabId,
+        [FromForm] IFormFile file,
+        [FromForm] string? description = null)
+    {
+        try
+        {
+            _logger.LogInformation("UploadExcelDataForTab called with tabId: {TabId}, file: {FileName}, fileSize: {FileSize}", 
+                tabId, file?.FileName, file?.Length);
+
+            if (file == null || file.Length == 0)
+            {
+                _logger.LogWarning("No file provided for tab {TabId}", tabId);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = new ApiError
+                    {
+                        Code = "VALIDATION_ERROR",
+                        Message = "No file provided"
+                    }
+                });
+            }
+
+            if (!IsValidExcelFile(file))
+            {
+                _logger.LogWarning("Invalid file format for tab {TabId}. File: {FileName}", tabId, file.FileName);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = new ApiError
+                    {
+                        Code = "VALIDATION_ERROR",
+                        Message = "Invalid file format. Only Excel files (.xlsx, .xls) are allowed"
+                    }
+                });
+            }
+
+            // Parse Excel file to get preview data
+            _logger.LogInformation("Parsing Excel file for tab {TabId}", tabId);
+            var parseResult = await _excelService.ParseAsync(file);
+            _logger.LogInformation("Parse result for tab {TabId}: Success={Success}, Message={Message}", 
+                tabId, parseResult.Success, parseResult.Message);
+            
+            if (!parseResult.Success)
+            {
+                _logger.LogWarning("Excel parse failed for tab {TabId}: {Message}", tabId, parseResult.Message);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = new ApiError
+                    {
+                        Code = "PARSE_ERROR",
+                        Message = parseResult.Message
+                    }
+                });
+            }
+
+            // Create intelligent column mappings based on headers
+            var columnMappings = new Dictionary<string, string>();
+            foreach (var header in parseResult.Headers)
+            {
+                // Map common Excel headers to standard field names
+                var mappedField = MapHeaderToField(header);
+                columnMappings[header] = mappedField;
+            }
+
+            // Import data using TabEmployeeService
+            _logger.LogInformation("Starting Excel import for tab {TabId} with {HeaderCount} headers", 
+                tabId, columnMappings.Count);
+            var tabEmployeeService = HttpContext.RequestServices.GetRequiredService<ITabEmployeeService>();
+            var importSuccess = await tabEmployeeService.ImportFromExcelAsync(tabId, file, columnMappings);
+            _logger.LogInformation("Excel import result for tab {TabId}: Success={Success}", tabId, importSuccess);
+
+            if (!importSuccess)
+            {
+                _logger.LogError("Excel import failed for tab {TabId}", tabId);
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = new ApiError
+                    {
+                        Code = "IMPORT_ERROR",
+                        Message = "Failed to import Excel data into database"
+                    }
+                });
+            }
+
+            return Ok(new ApiResponse<object>
+            {
+                Success = true,
+                Data = new
+                {
+                    message = "Excel data uploaded and processed successfully",
+                    tabId = tabId,
+                    fileName = file.FileName,
+                    fileSize = file.Length,
+                    rowsProcessed = parseResult.RowsProcessed,
+                    headers = parseResult.Headers
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload Excel data for tab {TabId}", tabId);
+            return StatusCode(500, new ApiResponse<object>
+            {
+                Success = false,
+                Error = new ApiError
+                {
+                    Code = "INTERNAL_ERROR",
+                    Message = "Failed to upload Excel data for tab"
+                }
+            });
+        }
+    }
+
+    /// <summary>
     /// Download Excel template for a letter type
     /// </summary>
     [HttpGet("templates/{letterTypeDefinitionId}")]
@@ -359,5 +584,57 @@ public class ExcelController : ControllerBase
         var allowedExtensions = new[] { ".xlsx", ".xls" };
         var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
         return allowedExtensions.Contains(fileExtension);
+    }
+
+    private static string MapHeaderToField(string header)
+    {
+        if (string.IsNullOrEmpty(header))
+            return header;
+
+        var headerLower = header.ToLowerInvariant().Trim();
+
+        // Map common variations to standard field names
+        switch (headerLower)
+        {
+            case "emp id":
+            case "employee id":
+            case "id":
+            case "emp_id":
+            case "employee_id":
+                return "EmployeeId";
+            
+            case "emp name":
+            case "employee name":
+            case "name":
+            case "emp_name":
+            case "employee_name":
+                return "EmployeeName";
+            
+            case "email":
+            case "email address":
+            case "email_address":
+                return "Email";
+            
+            case "phone":
+            case "phone number":
+            case "phone_number":
+            case "mobile":
+            case "mobile number":
+                return "Phone";
+            
+            case "department":
+            case "dept":
+                return "Department";
+            
+            case "position":
+            case "job title":
+            case "job_title":
+            case "title":
+            case "designation":
+                return "Position";
+            
+            default:
+                return header; // Return original header for custom fields
+        }
     }
 }

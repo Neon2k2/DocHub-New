@@ -1,26 +1,31 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using DocHub.API.DTOs;
 using DocHub.API.Services.Interfaces;
 using DocHub.API.Models;
 using DocHub.API.Attributes;
+using DocHub.API.Data;
 
 namespace DocHub.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/v1/[controller]")]
 [Authorize]
 public class DynamicLetterTypeController : ControllerBase
 {
     private readonly ILetterTypeService _letterTypeService;
     private readonly ILogger<DynamicLetterTypeController> _logger;
+    private readonly DocHubDbContext _context;
 
     public DynamicLetterTypeController(
         ILetterTypeService letterTypeService,
-        ILogger<DynamicLetterTypeController> logger)
+        ILogger<DynamicLetterTypeController> logger,
+        DocHubDbContext context)
     {
         _letterTypeService = letterTypeService;
         _logger = logger;
+        _context = context;
     }
 
     /// <summary>
@@ -118,6 +123,25 @@ public class DynamicLetterTypeController : ControllerBase
                 });
             }
 
+            // Get module by name, create if it doesn't exist
+            var module = await _context.Modules.FirstOrDefaultAsync(m => m.Name == request.Module);
+            if (module == null)
+            {
+                // Create the module if it doesn't exist
+                module = new Module
+                {
+                    Id = Guid.NewGuid(),
+                    Name = request.Module,
+                    DisplayName = request.Module,
+                    Description = $"{request.Module} Module",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _context.Modules.Add(module);
+                await _context.SaveChangesAsync();
+            }
+
             var letterType = new LetterTypeDefinition
             {
                 Id = Guid.NewGuid(),
@@ -126,7 +150,7 @@ public class DynamicLetterTypeController : ControllerBase
                 Description = request.Description,
                 FieldConfiguration = request.FieldConfiguration,
                 IsActive = request.IsActive,
-                ModuleId = Guid.Parse(request.Module),
+                ModuleId = module.Id,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -141,14 +165,14 @@ public class DynamicLetterTypeController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create letter type definition");
+            _logger.LogError(ex, "Failed to create letter type definition: {Message}", ex.Message);
             return StatusCode(500, new ApiResponse<LetterTypeDefinition>
             {
                 Success = false,
                 Error = new ApiError
                 {
                     Code = "INTERNAL_ERROR",
-                    Message = "Failed to create letter type definition"
+                    Message = $"Failed to create letter type definition: {ex.Message}"
                 }
             });
         }

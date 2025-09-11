@@ -13,7 +13,11 @@ public class Employee
     
     [Required]
     [MaxLength(200)]
-    public string Name { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    
+    [Required]
+    [MaxLength(200)]
+    public string LastName { get; set; } = string.Empty;
     
     [MaxLength(500)]
     public string? Email { get; set; }
@@ -27,15 +31,13 @@ public class Employee
     
     [Required]
     [MaxLength(100)]
-    public string Designation { get; set; } = string.Empty;
+    public string Position { get; set; } = string.Empty;
     
     public DateTime JoiningDate { get; set; }
     
     public DateTime? RelievingDate { get; set; }
     
-    [Required]
-    [MaxLength(50)]
-    public string Status { get; set; } = "Active";
+    public bool IsActive { get; set; } = true;
     
     [MaxLength(200)]
     public string? Manager { get; set; }
@@ -44,6 +46,9 @@ public class Employee
     public string? Location { get; set; }
     
     public decimal? Salary { get; set; }
+    
+    // Computed property for full name
+    public string Name => $"{FirstName} {LastName}";
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     

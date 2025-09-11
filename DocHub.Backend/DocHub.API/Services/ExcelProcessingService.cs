@@ -4,7 +4,9 @@ using DocHub.API.Services.Interfaces;
 using DocHub.API.DTOs;
 using DocHub.API.Extensions;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
+using DocumentFormat.OpenXml;
 using System.Text.RegularExpressions;
 
 namespace DocHub.API.Services;
@@ -25,7 +27,6 @@ public class ExcelProcessingService : IExcelProcessingService
         try
         {
             var letterType = await _context.LetterTypeDefinitions
-                .Include(lt => lt.Fields)
                 .FirstOrDefaultAsync(lt => lt.Id == letterTypeDefinitionId);
 
             if (letterType == null)
@@ -33,28 +34,28 @@ public class ExcelProcessingService : IExcelProcessingService
                 return new ExcelProcessingResult
                 {
                     Success = false,
-                    Message = "Letter type definition not found",
-                    Errors = new List<string> { "Invalid letter type definition ID" }
+                    Message = "Letter type not found",
+                    Errors = new List<string> { "Letter type definition not found" }
                 };
             }
 
             using var stream = file.OpenReadStream();
-            using var package = new ExcelPackage(stream);
-            var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+            var data = await ExtractDataFromExcelAsync(stream);
 
-            if (worksheet == null)
+            if (!data.Any())
             {
                 return new ExcelProcessingResult
                 {
                     Success = false,
-                    Message = "No worksheets found in Excel file",
-                    Errors = new List<string> { "Excel file contains no worksheets" }
+                    Message = "No data found in Excel file",
+                    Errors = new List<string> { "Excel file is empty or contains no valid data" }
                 };
             }
 
-            var data = ExtractDataFromWorksheet(worksheet);
-            var fieldMappings = MapColumnsToFields(data.FirstOrDefault()?.Keys.ToList() ?? new List<string>(), letterType.Fields.ToList());
-            var validationResult = ValidateData(data, letterType.Fields.ToList());
+            var standardFields = new List<string> { "EmployeeId", "EmployeeName", "Email", "Phone", "Department", "Position" };
+            var fieldMappings = MapColumnsToFields(data.FirstOrDefault()?.Keys.ToList() ?? new List<string>(), standardFields)
+                .ToDictionary(fm => fm.FieldKey, fm => fm.MappedColumn ?? string.Empty);
+            var validationResult = ValidateData(data, standardFields);
 
             return new ExcelProcessingResult
             {
@@ -78,28 +79,24 @@ public class ExcelProcessingService : IExcelProcessingService
         }
     }
 
-    public async Task<ExcelDataValidationResult> ValidateExcelDataAsync(IFormFile file, List<DynamicField> requiredFields)
+    public async Task<ExcelDataValidationResult> ValidateExcelDataAsync(IFormFile file, List<string> requiredFields)
     {
         try
         {
-            return await Task.Run(() =>
-            {
-                using var stream = file.OpenReadStream();
-                using var package = new ExcelPackage(stream);
-                var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+            using var stream = file.OpenReadStream();
+            var data = await ExtractDataFromExcelAsync(stream);
 
-            if (worksheet == null)
+            if (!data.Any())
             {
                 return new ExcelDataValidationResult
                 {
                     IsValid = false,
-                    Errors = new List<string> { "No worksheets found in Excel file" }
+                    Errors = new List<string> { "No data found in Excel file" }
                 };
             }
 
-            var data = ExtractDataFromWorksheet(worksheet);
-            return ValidateData(data, requiredFields);
-            });
+            var validationResult = ValidateData(data, requiredFields);
+            return validationResult;
         }
         catch (Exception ex)
         {
@@ -116,19 +113,8 @@ public class ExcelProcessingService : IExcelProcessingService
     {
         try
         {
-            return await Task.Run(() =>
-            {
-                using var stream = file.OpenReadStream();
-                using var package = new ExcelPackage(stream);
-                var worksheet = package.Workbook.Worksheets.FirstOrDefault();
-
-            if (worksheet == null)
-            {
-                return new List<Dictionary<string, object>>();
-            }
-
-            return ExtractDataFromWorksheet(worksheet);
-            });
+            using var stream = file.OpenReadStream();
+            return await ExtractDataFromExcelAsync(stream);
         }
         catch (Exception ex)
         {
@@ -137,52 +123,49 @@ public class ExcelProcessingService : IExcelProcessingService
         }
     }
 
-    public async Task<ExcelFieldMappingResult> MapExcelColumnsAsync(IFormFile file, List<DynamicField> targetFields)
+    public async Task<ExcelFieldMappingResult> MapExcelColumnsAsync(IFormFile file, List<string> targetFields)
     {
         try
         {
-            return await Task.Run(() =>
-            {
-                using var stream = file.OpenReadStream();
-                using var package = new ExcelPackage(stream);
-                var worksheet = package.Workbook.Worksheets.FirstOrDefault();
-
-            if (worksheet == null)
+            var data = await ExtractDataFromExcelAsync(file);
+            
+            if (!data.Any())
             {
                 return new ExcelFieldMappingResult
                 {
                     Success = false,
-                    UnmappedFields = targetFields.Select(f => f.FieldName).ToList()
+                    Mappings = new Dictionary<string, string>(),
+                    UnmappedFields = targetFields.ToList()
                 };
             }
 
-            var excelColumns = GetExcelColumns(worksheet);
+            var columnNames = data.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
             var mappings = new Dictionary<string, string>();
             var unmappedFields = new List<string>();
-            var suggestions = new List<string>();
 
             foreach (var field in targetFields)
             {
-                var mappedColumn = FindBestMatch(excelColumns, field.FieldName);
+                var mappedColumn = columnNames.FirstOrDefault(col => 
+                    col.Equals(field, StringComparison.OrdinalIgnoreCase)
+                );
+
                 if (mappedColumn != null)
                 {
-                    mappings[field.FieldName] = mappedColumn;
+                    mappings[field] = mappedColumn;
                 }
                 else
                 {
-                    unmappedFields.Add(field.FieldName);
-                    suggestions.AddRange(GetSuggestions(excelColumns, field.FieldName));
+                    unmappedFields.Add(field);
                 }
             }
 
             return new ExcelFieldMappingResult
             {
-                Success = unmappedFields.Count == 0,
+                Success = true,
                 Mappings = mappings,
                 UnmappedFields = unmappedFields,
-                Suggestions = suggestions.Distinct().ToList()
+                Suggestions = GenerateSuggestions(columnNames, unmappedFields)
             };
-            });
         }
         catch (Exception ex)
         {
@@ -190,177 +173,281 @@ public class ExcelProcessingService : IExcelProcessingService
             return new ExcelFieldMappingResult
             {
                 Success = false,
-                UnmappedFields = targetFields.Select(f => f.FieldName).ToList()
+                Mappings = new Dictionary<string, string>(),
+                UnmappedFields = targetFields.ToList()
             };
         }
     }
 
-    private List<Dictionary<string, object>> ExtractDataFromWorksheet(ExcelWorksheet worksheet)
+    private List<string> GenerateSuggestions(List<string> columnNames, List<string> unmappedFields)
     {
-        var data = new List<Dictionary<string, object>>();
-        var rowCount = worksheet.Dimension?.Rows ?? 0;
-        var colCount = worksheet.Dimension?.Columns ?? 0;
-
-        if (rowCount <= 1) return data; // No data rows
-
-        // Get headers from first row
-        var headers = new List<string>();
-        for (int col = 1; col <= colCount; col++)
+        var suggestions = new List<string>();
+        
+        foreach (var field in unmappedFields)
         {
-            var header = worksheet.Cells[1, col].Value?.ToString()?.Trim();
-            if (!string.IsNullOrEmpty(header))
-            {
-                headers.Add(header);
-            }
+            var similarColumns = columnNames.Where(col => 
+                col.Contains(field, StringComparison.OrdinalIgnoreCase) ||
+                field.Contains(col, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+            
+            suggestions.AddRange(similarColumns);
         }
 
-        // Extract data rows
-        for (int row = 2; row <= rowCount; row++)
-        {
-            var rowData = new Dictionary<string, object>();
-            for (int col = 1; col <= headers.Count; col++)
-            {
-                var value = worksheet.Cells[row, col].Value;
-                rowData[headers[col - 1]] = value ?? string.Empty;
-            }
-            data.Add(rowData);
-        }
-
-        return data;
+        return suggestions.Distinct().ToList();
     }
 
-    private List<string> GetExcelColumns(ExcelWorksheet worksheet)
+    private async Task<List<Dictionary<string, object>>> ExtractDataFromExcelAsync(Stream stream)
     {
-        var columns = new List<string>();
-        var colCount = worksheet.Dimension?.Columns ?? 0;
-
-        for (int col = 1; col <= colCount; col++)
+        return await Task.Run(() =>
         {
-            var header = worksheet.Cells[1, col].Value?.ToString()?.Trim();
-            if (!string.IsNullOrEmpty(header))
+            using var spreadsheetDocument = SpreadsheetDocument.Open(stream, false);
+            var workbookPart = spreadsheetDocument.WorkbookPart;
+            var worksheetPart = workbookPart?.WorksheetParts.FirstOrDefault();
+
+            if (worksheetPart == null)
+                return new List<Dictionary<string, object>>();
+
+            var worksheet = worksheetPart.Worksheet;
+            var sheetData = worksheet.GetFirstChild<SheetData>();
+
+            if (sheetData == null)
+                return new List<Dictionary<string, object>>();
+
+            var headers = new List<string>();
+            var data = new List<Dictionary<string, object>>();
+            var rows = sheetData.Elements<Row>().ToList();
+
+            if (rows.Count == 0)
+                return new List<Dictionary<string, object>>();
+
+            // Get headers from first row
+            var headerRow = rows.FirstOrDefault();
+            if (headerRow != null)
             {
-                columns.Add(header);
-            }
-        }
-
-        return columns;
-    }
-
-    private ExcelDataValidationResult ValidateData(List<Dictionary<string, object>> data, List<DynamicField> requiredFields)
-    {
-        var result = new ExcelDataValidationResult
-        {
-            IsValid = true,
-            ValidRows = data.Count,
-            InvalidRows = 0
-        };
-
-        foreach (var row in data)
-        {
-            var rowValid = true;
-            foreach (var field in requiredFields)
-            {
-                if (field.IsRequired && (!row.ContainsKey(field.FieldName) || string.IsNullOrEmpty(row[field.FieldName]?.ToString())))
+                var headerCells = headerRow.Elements<Cell>().ToList();
+                foreach (var cell in headerCells)
                 {
-                    result.Errors.Add($"Row {data.IndexOf(row) + 2}: Missing required field '{field.FieldName}'");
-                    rowValid = false;
+                    var cellValue = GetCellValue(cell, workbookPart);
+                    if (!string.IsNullOrEmpty(cellValue))
+                    {
+                        headers.Add(cellValue);
+                    }
                 }
             }
 
-            if (!rowValid)
+            // Get data from remaining rows
+            for (int i = 1; i < rows.Count; i++)
             {
-                result.InvalidRows++;
-                result.ValidRows--;
+                var row = rows[i];
+                var rowData = new Dictionary<string, object>();
+                var cells = row.Elements<Cell>().ToList();
+
+                for (int col = 0; col < headers.Count; col++)
+                {
+                    var cell = cells.FirstOrDefault(c => GetColumnIndex(c.CellReference) == col);
+                    var value = cell != null ? GetCellValue(cell, workbookPart) : string.Empty;
+                    rowData[headers[col]] = value ?? string.Empty;
+                }
+                data.Add(rowData);
+            }
+
+            return data;
+        });
+    }
+
+    private string GetCellValue(Cell cell, WorkbookPart workbookPart)
+    {
+        if (cell.CellValue == null)
+            return string.Empty;
+
+        string value = cell.CellValue.Text;
+
+        if (cell.DataType != null && cell.DataType.Value == CellValues.SharedString)
+        {
+            var sharedStringTable = workbookPart.SharedStringTablePart?.SharedStringTable;
+            if (sharedStringTable != null && int.TryParse(value, out int index))
+            {
+                var sharedStringItem = sharedStringTable.ElementAt(index);
+                value = sharedStringItem?.InnerText ?? string.Empty;
             }
         }
 
-        result.IsValid = result.InvalidRows == 0;
-        return result;
+        return value;
     }
 
-    private Dictionary<string, string> MapColumnsToFields(List<string> excelColumns, List<DynamicField> targetFields)
+    private int GetColumnIndex(string cellReference)
     {
-        var mappings = new Dictionary<string, string>();
+        if (string.IsNullOrEmpty(cellReference))
+            return 0;
 
-        foreach (var field in targetFields)
+        string columnPart = string.Empty;
+        foreach (char c in cellReference)
         {
-            var mappedColumn = FindBestMatch(excelColumns, field.FieldName);
-            if (mappedColumn != null)
+            if (char.IsLetter(c))
+                columnPart += c;
+            else
+                break;
+        }
+
+        int columnIndex = 0;
+        for (int i = 0; i < columnPart.Length; i++)
+        {
+            columnIndex = columnIndex * 26 + (columnPart[i] - 'A' + 1);
+        }
+
+        return columnIndex - 1; // Convert to 0-based index
+    }
+
+    private List<FieldMapping> MapColumnsToFields(List<string> columnNames, List<string> fields)
+    {
+        var mappings = new List<FieldMapping>();
+
+        foreach (var field in fields)
+        {
+            var mapping = new FieldMapping
             {
-                mappings[field.FieldName] = mappedColumn;
-            }
+                FieldId = Guid.NewGuid(),
+                FieldKey = field,
+                FieldName = field,
+                DisplayName = field,
+                IsRequired = false,
+                MappedColumn = columnNames.FirstOrDefault(col => 
+                    col.Equals(field, StringComparison.OrdinalIgnoreCase)
+                ),
+                Confidence = 1.0
+            };
+
+            mappings.Add(mapping);
         }
 
         return mappings;
     }
 
-    private string? FindBestMatch(List<string> excelColumns, string targetField)
+    private ExcelDataValidationResult ValidateData(List<Dictionary<string, object>> data, List<string> fields)
     {
-        // Exact match
-        var exactMatch = excelColumns.FirstOrDefault(c => 
-            string.Equals(c, targetField, StringComparison.OrdinalIgnoreCase));
-        if (exactMatch != null) return exactMatch;
+        var errors = new List<string>();
+        var warnings = new List<string>();
 
-        // Partial match
-        var partialMatch = excelColumns.FirstOrDefault(c => 
-            c.Contains(targetField, StringComparison.OrdinalIgnoreCase) ||
-            targetField.Contains(c, StringComparison.OrdinalIgnoreCase));
-        if (partialMatch != null) return partialMatch;
-
-        // Fuzzy match using similarity
-        var bestMatch = excelColumns
-            .Select(c => new { Column = c, Similarity = CalculateSimilarity(c, targetField) })
-            .Where(x => x.Similarity > 0.6)
-            .OrderByDescending(x => x.Similarity)
-            .FirstOrDefault();
-
-        return bestMatch?.Column;
-    }
-
-    private double CalculateSimilarity(string s1, string s2)
-    {
-        if (string.IsNullOrEmpty(s1) || string.IsNullOrEmpty(s2))
-            return 0;
-
-        var longer = s1.Length > s2.Length ? s1 : s2;
-        var shorter = s1.Length > s2.Length ? s2 : s1;
-
-        if (longer.Length == 0) return 1.0;
-
-        var distance = LevenshteinDistance(longer, shorter);
-        return (longer.Length - distance) / (double)longer.Length;
-    }
-
-    private int LevenshteinDistance(string s1, string s2)
-    {
-        var matrix = new int[s1.Length + 1, s2.Length + 1];
-
-        for (int i = 0; i <= s1.Length; i++)
-            matrix[i, 0] = i;
-
-        for (int j = 0; j <= s2.Length; j++)
-            matrix[0, j] = j;
-
-        for (int i = 1; i <= s1.Length; i++)
+        if (!data.Any())
         {
-            for (int j = 1; j <= s2.Length; j++)
+            errors.Add("No data found in Excel file");
+            return new ExcelDataValidationResult
             {
-                var cost = s1[i - 1] == s2[j - 1] ? 0 : 1;
-                matrix[i, j] = Math.Min(
-                    Math.Min(matrix[i - 1, j] + 1, matrix[i, j - 1] + 1),
-                    matrix[i - 1, j - 1] + cost);
+                IsValid = false,
+                Errors = errors,
+                Warnings = warnings
+            };
+        }
+
+        var requiredFields = fields; // All fields are considered required for now
+        var firstRow = data.FirstOrDefault();
+
+        if (firstRow == null)
+        {
+            errors.Add("Excel file contains no data rows");
+            return new ExcelDataValidationResult
+            {
+                IsValid = false,
+                Errors = errors,
+                Warnings = warnings
+            };
+        }
+
+        // Check for required fields
+        foreach (var field in requiredFields)
+        {
+            var hasField = firstRow.ContainsKey(field);
+
+            if (!hasField)
+            {
+                errors.Add($"Required field '{field}' not found in Excel file");
             }
         }
 
-        return matrix[s1.Length, s2.Length];
+        // Validate data types and constraints
+        foreach (var row in data)
+        {
+            foreach (var field in fields)
+            {
+                if (row.TryGetValue(field, out var value) && value != null)
+                {
+                    var validationResult = ValidateFieldValue(value, field);
+                    if (!validationResult.IsValid)
+                    {
+                        errors.AddRange(validationResult.Errors);
+                    }
+                    warnings.AddRange(validationResult.Warnings);
+                }
+            }
+        }
+
+        return new ExcelDataValidationResult
+        {
+            IsValid = !errors.Any(),
+            Errors = errors,
+            Warnings = warnings
+        };
     }
 
-    private List<string> GetSuggestions(List<string> excelColumns, string targetField)
+    private ExcelDataValidationResult ValidateFieldValue(object value, string fieldName)
     {
-        return excelColumns
-            .Where(c => CalculateSimilarity(c, targetField) > 0.3)
-            .OrderByDescending(c => CalculateSimilarity(c, targetField))
-            .Take(3)
-            .ToList();
+        var errors = new List<string>();
+        var warnings = new List<string>();
+
+        if (value == null || string.IsNullOrEmpty(value.ToString()))
+        {
+            errors.Add($"Field '{fieldName}' is required but is empty");
+            return new ExcelDataValidationResult
+            {
+                IsValid = !errors.Any(),
+                Errors = errors,
+                Warnings = warnings
+            };
+        }
+
+        var stringValue = value.ToString();
+
+        // Validate field type based on field name
+        if (fieldName.ToLower().Contains("email"))
+        {
+            if (!IsValidEmail(stringValue))
+            {
+                errors.Add($"Field '{fieldName}' contains invalid email format");
+            }
+        }
+        else if (fieldName.ToLower().Contains("phone"))
+        {
+            // Basic phone validation
+            if (stringValue.Length < 10)
+            {
+                errors.Add($"Field '{fieldName}' must be a valid phone number");
+            }
+        }
+
+        // Basic length validation
+        if (stringValue.Length > 500)
+        {
+            warnings.Add($"Field '{fieldName}' is very long ({stringValue.Length} characters)");
+        }
+
+        return new ExcelDataValidationResult
+        {
+            IsValid = !errors.Any(),
+            Errors = errors,
+            Warnings = warnings
+        };
+    }
+
+    private bool IsValidEmail(string email)
+    {
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == email;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

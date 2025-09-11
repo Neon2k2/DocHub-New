@@ -100,6 +100,35 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> Logout()
+    {
+        try
+        {
+            // In a real application, you might want to blacklist the token
+            // For now, we'll just return success as the client will clear local storage
+            return Ok(new ApiResponse<bool>
+            {
+                Success = true,
+                Data = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during logout");
+            return StatusCode(500, new ApiResponse<bool>
+            {
+                Success = false,
+                Error = new ApiError
+                {
+                    Code = "INTERNAL_ERROR",
+                    Message = "An internal error occurred"
+                }
+            });
+        }
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     public async Task<ActionResult<ApiResponse<bool>>> ChangePassword([FromBody] ChangePasswordRequest request)

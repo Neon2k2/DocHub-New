@@ -20,7 +20,6 @@ public class LetterTypeService : ILetterTypeService
     public async Task<IEnumerable<LetterTypeDefinition>> GetAllAsync(string? module = null, bool? isActive = null)
     {
         var query = _context.LetterTypeDefinitions
-            .Include(lt => lt.Fields)
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(module))
@@ -41,7 +40,6 @@ public class LetterTypeService : ILetterTypeService
     public async Task<LetterTypeDefinition?> GetByIdAsync(Guid id)
     {
         return await _context.LetterTypeDefinitions
-            .Include(lt => lt.Fields)
             .FirstOrDefaultAsync(lt => lt.Id == id);
     }
 
@@ -142,7 +140,6 @@ public class LetterTypeService : ILetterTypeService
     public async Task<IEnumerable<LetterTypeDefinition>> GetByModuleAsync(string module)
     {
         return await _context.LetterTypeDefinitions
-            .Include(lt => lt.Fields)
             .Where(lt => lt.ModuleId.ToString() == module && lt.IsActive)
             .OrderBy(lt => lt.DisplayName)
             .ToListAsync();

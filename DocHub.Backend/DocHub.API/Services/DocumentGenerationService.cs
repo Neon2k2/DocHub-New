@@ -38,7 +38,6 @@ public class DocumentGenerationService : IDocumentGenerationService
         {
             // Get letter type definition
             var letterType = await _context.LetterTypeDefinitions
-                .Include(lt => lt.Fields)
                 .FirstOrDefaultAsync(lt => lt.Id == request.LetterTypeDefinitionId);
 
             if (letterType == null)
@@ -133,7 +132,6 @@ public class DocumentGenerationService : IDocumentGenerationService
         {
             // Get letter type definition
             var letterType = await _context.LetterTypeDefinitions
-                .Include(lt => lt.Fields)
                 .FirstOrDefaultAsync(lt => lt.Id == request.LetterTypeDefinitionId);
 
             if (letterType == null)
@@ -213,7 +211,6 @@ public class DocumentGenerationService : IDocumentGenerationService
         {
             // Get letter type definition
             var letterType = await _context.LetterTypeDefinitions
-                .Include(lt => lt.Fields)
                 .FirstOrDefaultAsync(lt => lt.Id == request.LetterTypeDefinitionId);
 
             if (letterType == null)
@@ -285,7 +282,6 @@ public class DocumentGenerationService : IDocumentGenerationService
         {
             // Get letter type definition
             var letterType = await _context.LetterTypeDefinitions
-                .Include(lt => lt.Fields)
                 .FirstOrDefaultAsync(lt => lt.Id == request.LetterTypeDefinitionId);
 
             if (letterType == null)
@@ -305,20 +301,12 @@ public class DocumentGenerationService : IDocumentGenerationService
                 return result;
             }
 
-            // Validate required fields
-            var requiredFields = letterType.Fields.Where(f => f.IsRequired).ToList();
+            // Basic validation - check if employees have required data
             foreach (var employee in employees)
             {
-                foreach (var field in requiredFields)
+                if (string.IsNullOrWhiteSpace(employee.Name))
                 {
-                    var fieldData = await _context.DynamicFieldData
-                        .FirstOrDefaultAsync(fd => fd.EmployeeId == employee.Id && 
-                                                 fd.FieldKey == field.FieldKey);
-
-                    if (fieldData == null || string.IsNullOrWhiteSpace(fieldData.FieldValue))
-                    {
-                        result.Errors.Add($"Missing required field '{field.DisplayName}' for employee {employee.Name}");
-                    }
+                    result.Errors.Add($"Missing employee name for employee ID {employee.Id}");
                 }
             }
 
@@ -455,7 +443,7 @@ public class DocumentGenerationService : IDocumentGenerationService
         {
             ["{{EMPLOYEE_NAME}}"] = employee.Name,
             ["{{EMPLOYEE_ID}}"] = employee.EmployeeId,
-            ["{{DESIGNATION}}"] = employee.Designation,
+            ["{{DESIGNATION}}"] = employee.Position,
             ["{{DEPARTMENT}}"] = employee.Department,
             ["{{JOIN_DATE}}"] = employee.JoiningDate.ToString("dd-MMM-yyyy"),
             ["{{RELIEVING_DATE}}"] = employee.RelievingDate?.ToString("dd-MMM-yyyy") ?? "Current",
@@ -473,14 +461,39 @@ public class DocumentGenerationService : IDocumentGenerationService
             }
         }
 
-        // Get field data from database
-        var fieldData = await _context.DynamicFieldData
-            .Where(fd => fd.EmployeeId == employee.Id && fd.LetterTypeDefinitionId == letterType.Id)
-            .ToListAsync();
+        // Get field data from TabEmployeeData
+        var employeeData = await _context.TabEmployeeData
+            .FirstOrDefaultAsync(ed => ed.EmployeeId == employee.Id.ToString() && ed.TabId == letterType.Id);
 
-        foreach (var field in fieldData)
+        if (employeeData != null)
         {
-            replacements[$"{{{{{{{field.FieldKey}}}}}}}"] = field.FieldValue;
+            // Add standard fields
+            replacements["{{EmployeeId}}"] = employeeData.EmployeeId ?? "";
+            replacements["{{EmployeeName}}"] = employeeData.EmployeeName ?? "";
+            replacements["{{Email}}"] = employeeData.Email ?? "";
+            replacements["{{Phone}}"] = employeeData.Phone ?? "";
+            replacements["{{Department}}"] = employeeData.Department ?? "";
+            replacements["{{Position}}"] = employeeData.Position ?? "";
+
+            // Add custom fields from JSON
+            if (!string.IsNullOrEmpty(employeeData.CustomFields))
+            {
+                try
+                {
+                    var customFields = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(employeeData.CustomFields);
+                    if (customFields != null)
+                    {
+                        foreach (var field in customFields)
+                        {
+                            replacements[$"{{{{{field.Key}}}}}"] = field.Value?.ToString() ?? "";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse custom fields for employee {EmployeeId}", employee.Id);
+                }
+            }
         }
 
         // Process all text elements

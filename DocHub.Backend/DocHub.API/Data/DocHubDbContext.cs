@@ -13,8 +13,6 @@ public class DocHubDbContext : DbContext
     // Core Tables
     public DbSet<Module> Modules { get; set; }
     public DbSet<LetterTypeDefinition> LetterTypeDefinitions { get; set; }
-    public DbSet<DynamicField> DynamicFields { get; set; }
-    public DbSet<DynamicFieldData> DynamicFieldData { get; set; }
     
     // Document Management
     public DbSet<DocumentTemplate> DocumentTemplates { get; set; }
@@ -31,6 +29,7 @@ public class DocHubDbContext : DbContext
     
     // Employee Management
     public DbSet<Employee> Employees { get; set; }
+    public DbSet<TabEmployeeData> TabEmployeeData { get; set; }
     
     // Audit & Logging
     public DbSet<AuditLog> AuditLogs { get; set; }
@@ -74,35 +73,6 @@ public class DocHubDbContext : DbContext
                   .OnDelete(DeleteBehavior.SetNull);
         });
 
-        // DynamicField configuration
-        modelBuilder.Entity<DynamicField>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.FieldKey).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(200);
-            entity.Property(e => e.FieldType).IsRequired().HasMaxLength(50);
-            entity.Property(e => e.ValidationRules).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.DefaultValue).HasMaxLength(500);
-            
-            entity.HasOne(e => e.LetterTypeDefinition)
-                  .WithMany(e => e.Fields)
-                  .HasForeignKey(e => e.LetterTypeDefinitionId)
-                  .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // DynamicFieldData configuration
-        modelBuilder.Entity<DynamicFieldData>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.FieldKey).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.FieldValue).IsRequired().HasColumnType("nvarchar(max)");
-            entity.Property(e => e.FieldType).IsRequired().HasMaxLength(50);
-            
-            entity.HasOne(e => e.LetterTypeDefinition)
-                  .WithMany()
-                  .HasForeignKey(e => e.LetterTypeDefinitionId)
-                  .OnDelete(DeleteBehavior.Cascade);
-        });
 
         // DocumentTemplate configuration
         modelBuilder.Entity<DocumentTemplate>(entity =>
@@ -238,14 +208,15 @@ public class DocHubDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.EmployeeId).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.LastName).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Email).HasMaxLength(500);
             entity.Property(e => e.Phone).HasMaxLength(50);
             entity.Property(e => e.Department).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Designation).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Position).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Manager).HasMaxLength(200);
             entity.Property(e => e.Location).HasMaxLength(200);
-            entity.Property(e => e.Status).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.IsActive).IsRequired();
             
             entity.HasIndex(e => e.EmployeeId).IsUnique();
         });
@@ -341,6 +312,51 @@ public class DocHubDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
                 
             entity.HasIndex(e => new { e.UserId, e.RoleId }).IsUnique();
+        });
+
+        // TabEmployeeData configuration
+        modelBuilder.Entity<TabEmployeeData>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EmployeeId).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.EmployeeName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Email).HasMaxLength(500);
+            entity.Property(e => e.Phone).HasMaxLength(50);
+            entity.Property(e => e.Department).HasMaxLength(100);
+            entity.Property(e => e.Position).HasMaxLength(100);
+            entity.Property(e => e.CustomFields).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.DataSource).HasMaxLength(50);
+            entity.Property(e => e.IsActive).IsRequired();
+            
+            entity.HasOne(e => e.Tab)
+                .WithMany()
+                .HasForeignKey(e => e.TabId)
+                .OnDelete(DeleteBehavior.Cascade);
+                
+            entity.HasIndex(e => new { e.TabId, e.EmployeeId }).IsUnique();
+        });
+
+        // ExcelUpload configuration
+        modelBuilder.Entity<ExcelUpload>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.FilePath).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.ContentType).HasMaxLength(50);
+            entity.Property(e => e.UploadedBy).HasMaxLength(100);
+            entity.Property(e => e.ProcessedBy).HasMaxLength(100);
+            entity.Property(e => e.Metadata).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ParsedData).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.FieldMappings).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ProcessingOptions).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.Results).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.IsProcessed).IsRequired();
+            entity.Property(e => e.ProcessedRows).IsRequired();
+            
+            entity.HasOne(e => e.LetterTypeDefinition)
+                .WithMany()
+                .HasForeignKey(e => e.LetterTypeDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

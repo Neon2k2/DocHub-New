@@ -4,7 +4,9 @@ using DocHub.API.Models;
 using DocHub.API.Services.Interfaces;
 using DocHub.API.Extensions;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
+using DocumentFormat.OpenXml;
 
 namespace DocHub.API.Services;
 
@@ -172,7 +174,6 @@ public class ExcelService : IExcelService
     public async Task<byte[]> DownloadTemplateAsync(Guid letterTypeDefinitionId)
     {
         var letterType = await _context.LetterTypeDefinitions
-            .Include(lt => lt.DynamicFields)
             .FirstOrDefaultAsync(lt => lt.Id == letterTypeDefinitionId);
 
         if (letterType == null)
@@ -180,28 +181,87 @@ public class ExcelService : IExcelService
             throw new ArgumentException("Letter type definition not found");
         }
 
-        // Create Excel template with dynamic fields
-        using var package = new ExcelPackage();
-        var worksheet = package.Workbook.Worksheets.Add("Data");
-
-        // Add headers based on dynamic fields
-        int col = 1;
-        foreach (var field in letterType.DynamicFields.OrderBy(f => f.Order))
+        using var memoryStream = new MemoryStream();
+        using (var spreadsheetDocument = SpreadsheetDocument.Create(memoryStream, SpreadsheetDocumentType.Workbook))
         {
-            worksheet.Cells[1, col].Value = field.DisplayName;
-            col++;
+            // Add a WorkbookPart to the document
+            var workbookPart = spreadsheetDocument.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+
+            // Add a WorksheetPart to the WorkbookPart
+            var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(new SheetData());
+
+            // Add Sheets to the Workbook
+            var sheets = spreadsheetDocument.WorkbookPart.Workbook.AppendChild(new Sheets());
+
+            // Append a new worksheet and associate it with the workbook
+            var sheet = new Sheet()
+            {
+                Id = spreadsheetDocument.WorkbookPart.GetIdOfPart(worksheetPart),
+                SheetId = 1,
+                Name = "Data"
+            };
+            sheets.Append(sheet);
+
+            // Get the sheet data
+            var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+
+            // Add header row with standard fields
+            var headerRow = new Row() { RowIndex = 1 };
+            var standardFields = new[] { "EmployeeId", "EmployeeName", "Email", "Phone", "Department", "Position" };
+
+            for (int i = 0; i < standardFields.Length; i++)
+            {
+                var cell = new Cell()
+                {
+                    CellReference = GetColumnName(i + 1) + "1",
+                    DataType = CellValues.String,
+                    CellValue = new CellValue(standardFields[i])
+                };
+                headerRow.AppendChild(cell);
+            }
+            sheetData.AppendChild(headerRow);
+
+            // Add sample data row
+            var dataRow = new Row() { RowIndex = 2 };
+            for (int i = 0; i < standardFields.Length; i++)
+            {
+                var cell = new Cell()
+                {
+                    CellReference = GetColumnName(i + 1) + "2",
+                    DataType = CellValues.String,
+                    CellValue = new CellValue($"Sample {standardFields[i]}")
+                };
+                dataRow.AppendChild(cell);
+            }
+            sheetData.AppendChild(dataRow);
+
+            // Add instructions row
+            var instructionRow = new Row() { RowIndex = 3 };
+            var instructionCell = new Cell()
+            {
+                CellReference = "A3",
+                DataType = CellValues.String,
+                CellValue = new CellValue("Instructions: Replace sample data with your actual data. Do not modify the header row.")
+            };
+            instructionRow.AppendChild(instructionCell);
+            sheetData.AppendChild(instructionRow);
         }
 
-        // Add sample data row
-        int row = 2;
-        col = 1;
-        foreach (var field in letterType.DynamicFields.OrderBy(f => f.Order))
-        {
-            worksheet.Cells[row, col].Value = $"Sample {field.DisplayName}";
-            col++;
-        }
+        return memoryStream.ToArray();
+    }
 
-        return package.GetAsByteArray();
+    private string GetColumnName(int columnNumber)
+    {
+        string columnName = "";
+        while (columnNumber > 0)
+        {
+            int modulo = (columnNumber - 1) % 26;
+            columnName = Convert.ToChar('A' + modulo) + columnName;
+            columnNumber = (columnNumber - modulo) / 26;
+        }
+        return columnName;
     }
 
     public Task<ExcelValidationResult> ValidateAsync(ExcelValidationRequest request)
@@ -234,51 +294,83 @@ public class ExcelService : IExcelService
         {
             return await Task.Run(() =>
             {
-                using var package = new ExcelPackage(new FileInfo(filePath));
-                var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+                using var spreadsheetDocument = SpreadsheetDocument.Open(filePath, false);
+                var workbookPart = spreadsheetDocument.WorkbookPart;
+                var worksheetPart = workbookPart?.WorksheetParts.FirstOrDefault();
 
-            if (worksheet == null)
-            {
+                if (worksheetPart == null)
+                {
+                    return new ExcelParseResult
+                    {
+                        Success = false,
+                        Message = "No worksheets found in Excel file"
+                    };
+                }
+
+                var worksheet = worksheetPart.Worksheet;
+                var sheetData = worksheet.GetFirstChild<SheetData>();
+
+                if (sheetData == null)
+                {
+                    return new ExcelParseResult
+                    {
+                        Success = false,
+                        Message = "No data found in worksheet"
+                    };
+                }
+
+                var headers = new List<string>();
+                var data = new List<Dictionary<string, object>>();
+                var rows = sheetData.Elements<Row>().ToList();
+
+                if (rows.Count == 0)
+                {
+                    return new ExcelParseResult
+                    {
+                        Success = false,
+                        Message = "Excel file is empty"
+                    };
+                }
+
+                // Get headers from first row
+                var headerRow = rows.FirstOrDefault();
+                if (headerRow != null)
+                {
+                    var headerCells = headerRow.Elements<Cell>().ToList();
+                    foreach (var cell in headerCells)
+                    {
+                        var cellValue = GetCellValue(cell, workbookPart);
+                        if (!string.IsNullOrEmpty(cellValue))
+                        {
+                            headers.Add(cellValue);
+                        }
+                    }
+                }
+
+                // Get data from remaining rows
+                for (int i = 1; i < rows.Count; i++)
+                {
+                    var row = rows[i];
+                    var rowData = new Dictionary<string, object>();
+                    var cells = row.Elements<Cell>().ToList();
+
+                    for (int col = 0; col < headers.Count; col++)
+                    {
+                        var cell = cells.FirstOrDefault(c => GetColumnIndex(c.CellReference) == col);
+                        var value = cell != null ? GetCellValue(cell, workbookPart) : string.Empty;
+                        rowData[headers[col]] = value ?? string.Empty;
+                    }
+                    data.Add(rowData);
+                }
+
                 return new ExcelParseResult
                 {
-                    Success = false,
-                    Message = "No worksheets found in Excel file"
+                    Success = true,
+                    Headers = headers,
+                    Data = data,
+                    RowsProcessed = data.Count,
+                    Message = "Excel file parsed successfully"
                 };
-            }
-
-            var headers = new List<string>();
-            var data = new List<Dictionary<string, object>>();
-
-            // Get headers from first row
-            for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
-            {
-                var header = worksheet.Cells[1, col].Value?.ToString();
-                if (!string.IsNullOrEmpty(header))
-                {
-                    headers.Add(header);
-                }
-            }
-
-            // Get data from remaining rows
-            for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
-            {
-                var rowData = new Dictionary<string, object>();
-                for (int col = 1; col <= headers.Count; col++)
-                {
-                    var value = worksheet.Cells[row, col].Value;
-                    rowData[headers[col - 1]] = value ?? string.Empty;
-                }
-                data.Add(rowData);
-            }
-
-            return new ExcelParseResult
-            {
-                Success = true,
-                Headers = headers,
-                Data = data,
-                RowsProcessed = data.Count,
-                Message = "Excel file parsed successfully"
-            };
             });
         }
         catch (Exception ex)
@@ -290,5 +382,48 @@ public class ExcelService : IExcelService
                 Message = "Failed to parse Excel file"
             };
         }
+    }
+
+    private string GetCellValue(Cell cell, WorkbookPart workbookPart)
+    {
+        if (cell.CellValue == null)
+            return string.Empty;
+
+        string value = cell.CellValue.Text;
+
+        if (cell.DataType != null && cell.DataType.Value == CellValues.SharedString)
+        {
+            var sharedStringTable = workbookPart.SharedStringTablePart?.SharedStringTable;
+            if (sharedStringTable != null && int.TryParse(value, out int index))
+            {
+                var sharedStringItem = sharedStringTable.ElementAt(index);
+                value = sharedStringItem?.InnerText ?? string.Empty;
+            }
+        }
+
+        return value;
+    }
+
+    private int GetColumnIndex(string cellReference)
+    {
+        if (string.IsNullOrEmpty(cellReference))
+            return 0;
+
+        string columnPart = string.Empty;
+        foreach (char c in cellReference)
+        {
+            if (char.IsLetter(c))
+                columnPart += c;
+            else
+                break;
+        }
+
+        int columnIndex = 0;
+        for (int i = 0; i < columnPart.Length; i++)
+        {
+            columnIndex = columnIndex * 26 + (columnPart[i] - 'A' + 1);
+        }
+
+        return columnIndex - 1; // Convert to 0-based index
     }
 }
