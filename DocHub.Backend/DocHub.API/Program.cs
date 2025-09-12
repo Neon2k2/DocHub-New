@@ -5,6 +5,10 @@ using DocHub.API.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using System.Text.Json.Serialization;
+using DotNetEnv;
+
+// Load .env file
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,8 +41,19 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Database
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (!string.IsNullOrEmpty(connectionString))
+{
+    // Replace environment variable placeholders
+    connectionString = connectionString
+        .Replace("${DB_SERVER}", Environment.GetEnvironmentVariable("DB_SERVER") ?? "10.128.65.5")
+        .Replace("${DB_NAME}", Environment.GetEnvironmentVariable("DB_NAME") ?? "DocHubDB")
+        .Replace("${DB_USER}", Environment.GetEnvironmentVariable("DB_USER") ?? "DocHubUser")
+        .Replace("${DB_PASSWORD}", Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "YourPasswordHere");
+}
+
 builder.Services.AddDbContext<DocHubDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(connectionString));
 
 // AutoMapper
 builder.Services.AddAutoMapper(typeof(Program));

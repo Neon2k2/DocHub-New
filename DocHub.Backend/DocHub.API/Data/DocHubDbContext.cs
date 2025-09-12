@@ -120,7 +120,7 @@ public class DocHubDbContext : DbContext
             
             entity.HasOne(e => e.LetterTypeDefinition)
                   .WithMany()
-                  .HasForeignKey(e => e.LetterTypeDefinitionId)
+                  .HasForeignKey("LetterTypeDefinitionId")
                   .OnDelete(DeleteBehavior.Cascade);
                   
             entity.HasOne(e => e.Module)
@@ -160,7 +160,7 @@ public class DocHubDbContext : DbContext
             
             entity.HasOne(e => e.LetterTypeDefinition)
                   .WithMany()
-                  .HasForeignKey(e => e.LetterTypeDefinitionId)
+                  .HasForeignKey("LetterTypeDefinitionId")
                   .OnDelete(DeleteBehavior.Cascade);
                   
             entity.HasOne(e => e.Module)
@@ -192,14 +192,20 @@ public class DocHubDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.FileName).IsRequired().HasMaxLength(500);
             entity.Property(e => e.FilePath).IsRequired().HasMaxLength(1000);
-            entity.Property(e => e.ProcessedBy).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ContentType).HasMaxLength(50);
+            entity.Property(e => e.UploadedBy).HasMaxLength(100);
+            entity.Property(e => e.ProcessedBy).HasMaxLength(100);
+            entity.Property(e => e.Metadata).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ParsedData).HasColumnType("nvarchar(max)");
             entity.Property(e => e.FieldMappings).HasColumnType("nvarchar(max)");
             entity.Property(e => e.ProcessingOptions).HasColumnType("nvarchar(max)");
             entity.Property(e => e.Results).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.IsProcessed).IsRequired();
+            entity.Property(e => e.ProcessedRows).IsRequired();
             
             entity.HasOne(e => e.LetterTypeDefinition)
                   .WithMany()
-                  .HasForeignKey(e => e.LetterTypeDefinitionId)
+                  .HasForeignKey("LetterTypeDefinitionId")
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -216,6 +222,7 @@ public class DocHubDbContext : DbContext
             entity.Property(e => e.Position).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Manager).HasMaxLength(200);
             entity.Property(e => e.Location).HasMaxLength(200);
+            entity.Property(e => e.Salary).HasColumnType("decimal(18,2)");
             entity.Property(e => e.IsActive).IsRequired();
             
             entity.HasIndex(e => e.EmployeeId).IsUnique();
@@ -336,27 +343,5 @@ public class DocHubDbContext : DbContext
             entity.HasIndex(e => new { e.TabId, e.EmployeeId }).IsUnique();
         });
 
-        // ExcelUpload configuration
-        modelBuilder.Entity<ExcelUpload>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.FileName).IsRequired().HasMaxLength(255);
-            entity.Property(e => e.FilePath).IsRequired().HasMaxLength(500);
-            entity.Property(e => e.ContentType).HasMaxLength(50);
-            entity.Property(e => e.UploadedBy).HasMaxLength(100);
-            entity.Property(e => e.ProcessedBy).HasMaxLength(100);
-            entity.Property(e => e.Metadata).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.ParsedData).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.FieldMappings).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.ProcessingOptions).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.Results).HasColumnType("nvarchar(max)");
-            entity.Property(e => e.IsProcessed).IsRequired();
-            entity.Property(e => e.ProcessedRows).IsRequired();
-            
-            entity.HasOne(e => e.LetterTypeDefinition)
-                .WithMany()
-                .HasForeignKey(e => e.LetterTypeDefinitionId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
     }
 }
