@@ -86,16 +86,33 @@ export function ExcelUploadDialog({
       }));
 
       // Upload to backend
+      console.log('🔄 [EXCEL-DIALOG] Starting upload to backend...');
+      console.log('📤 [EXCEL-DIALOG] FormData contents:', {
+        hasFile: formData.has('file'),
+        file: formData.get('file'),
+        description: formData.get('description'),
+        metadata: formData.get('metadata')
+      });
+      
       const response = await excelService.uploadExcelFile(formData, tabId);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
 
+      console.log('📊 [EXCEL-DIALOG] Upload response received:', response);
+      console.log('🔍 [EXCEL-DIALOG] Response analysis:', {
+        success: response.success,
+        hasData: !!response.data,
+        error: response.error
+      });
+
       if (response.success) {
+        console.log('✅ [EXCEL-DIALOG] Upload successful!');
         notify.success(`Excel file uploaded successfully! ${previewData.data.length} rows processed.`);
         onUploadSuccess(previewData);
         handleClose();
       } else {
+        console.error('❌ [EXCEL-DIALOG] Upload failed:', response.error);
         setError(response.error || 'Upload failed');
       }
     } catch (err) {
@@ -140,7 +157,7 @@ export function ExcelUploadDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
-        className="dialog-panel max-h-[90vh] flex flex-col"
+        className="dialog-panel max-h-[70vh] flex flex-col"
         style={{
           width: 'calc(100vw - 3rem) !important',
           maxWidth: 'calc(100vw - 3rem) !important',

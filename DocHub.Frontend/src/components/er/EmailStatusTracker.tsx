@@ -35,29 +35,44 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const initializingRef = useRef(false);
+  const cleanupRef = useRef(false);
 
   useEffect(() => {
     loadEmailJobs();
     initializeSignalR();
 
     return () => {
+      cleanupRef.current = true;
       cleanupSignalR();
     };
   }, []);
 
   const initializeSignalR = async () => {
+    if (!isRealTimeEnabled || initializingRef.current || cleanupRef.current) return;
+    
     try {
+      initializingRef.current = true;
+      setConnectionStatus('reconnecting');
+      
       await signalRService.start();
+      
+      // Only proceed if we haven't started cleanup
+      if (cleanupRef.current) {
+        await signalRService.stop();
+        return;
+      }
+      
       setConnectionStatus('connected');
       
       // Listen for email status updates
-      signalRService.onEmailStatusUpdated((update: EmailStatusUpdate) => {
-        handleEmailStatusUpdate(update);
-      });
+      signalRService.onEmailStatusUpdated(handleEmailStatusUpdate);
       
       // Listen for connection state changes
       const checkConnection = () => {
+        if (cleanupRef.current) return;
+        
         const state = signalRService.getConnectionState();
         if (state === 'Connected') {
           setConnectionStatus('connected');
@@ -69,12 +84,14 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
       };
       
       // Check connection state periodically
-      const interval = setInterval(checkConnection, 1000);
+      const interval = setInterval(checkConnection, 2000);
       
       return () => clearInterval(interval);
     } catch (error) {
       console.error('Failed to initialize SignalR:', error);
       setConnectionStatus('disconnected');
+    } finally {
+      initializingRef.current = false;
     }
   };
 
@@ -100,8 +117,14 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
   };
 
   const cleanupSignalR = async () => {
-    signalRService.offEmailStatusUpdated(handleEmailStatusUpdate);
-    await signalRService.stop();
+    try {
+      cleanupRef.current = true;
+      signalRService.offEmailStatusUpdated(handleEmailStatusUpdate);
+      await signalRService.stop();
+      setConnectionStatus('disconnected');
+    } catch (error) {
+      console.warn('Error during SignalR cleanup:', error);
+    }
   };
 
   const toggleRealTime = async () => {
@@ -117,6 +140,8 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
 
   const retryConnection = async () => {
     setConnectionStatus('reconnecting');
+    cleanupRef.current = false; // Reset cleanup flag for retry
+    initializingRef.current = false; // Reset initializing flag
     await cleanupSignalR();
     await initializeSignalR();
   };
@@ -127,12 +152,11 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
       const params: any = {};
       if (filter.status && filter.status !== 'all') params.status = filter.status;
       if (filter.employee) params.employeeId = filter.employee;
-      if (showOnlyOwnEmails && user) {
-        params.sentBy = user.name;
-      } else if (filter.sentBy) {
-        params.sentBy = filter.sentBy;
-      }
-
+      
+      // Backend now handles user filtering automatically based on admin permissions
+      // Admin users see all emails, regular users see only their own
+      // No need for frontend filtering - backend does it securely
+      
       const jobs = await documentService.getEmailJobs(params);
       setEmailJobs(jobs);
     } catch (error) {
@@ -373,7 +397,7 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                   onChange={(e) => setFilter(prev => ({ ...prev, employee: e.target.value }))}
                 />
 
-                {!showOnlyOwnEmails && (
+                {isAdmin() && (
                   <Input
                     placeholder="Search sender..."
                     value={filter.sentBy}
@@ -392,9 +416,9 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                 Email Status ({filteredJobs.length})
               </CardTitle>
               <CardDescription>
-                {showOnlyOwnEmails 
-                  ? 'Your sent emails and their delivery status'
-                  : 'All email communications and their delivery status'
+                {isAdmin() 
+                  ? 'All email communications from all users and their delivery status (Admin View)'
+                  : 'Your sent emails and their delivery status'
                 }
               </CardDescription>
             </CardHeader>

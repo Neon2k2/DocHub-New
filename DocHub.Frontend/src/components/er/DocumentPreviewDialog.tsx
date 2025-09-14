@@ -11,6 +11,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Switch } from '../ui/switch';
 import { documentService, DocumentTemplate, Signature as SignatureType, GeneratedDocument } from '../../services/document.service';
 import { Employee } from '../../services/api.service';
 import { notify } from '../../utils/notifications';
@@ -32,6 +33,9 @@ export function DocumentPreviewDialog({
   employees,
   onDocumentsGenerated
 }: DocumentPreviewDialogProps) {
+  console.log('🔍 [DocumentPreviewDialog] Dialog opened');
+  console.log('🔍 [DocumentPreviewDialog] Template:', template);
+  console.log('🔍 [DocumentPreviewDialog] Employees:', employees);
   const [signatures, setSignatures] = useState<SignatureType[]>([]);
   const [selectedSignatureId, setSelectedSignatureId] = useState<string>('');
   const [generatedDocuments, setGeneratedDocuments] = useState<GeneratedDocument[]>([]);

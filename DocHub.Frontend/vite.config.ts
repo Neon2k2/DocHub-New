@@ -9,8 +9,8 @@
     return {
       plugins: [react()],
       define: {
-        __API_BASE_URL__: JSON.stringify(env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1'),
-        __SIGNALR_URL__: JSON.stringify(env.VITE_SIGNALR_URL || 'http://localhost:5000/hubs/notifications'),
+        __API_BASE_URL__: JSON.stringify(env.VITE_API_BASE_URL || 'http://localhost:5120/api'),
+        __SIGNALR_URL__: JSON.stringify(env.VITE_SIGNALR_URL || 'http://localhost:5120/notificationHub'),
         __APP_NAME__: JSON.stringify(env.VITE_APP_NAME || 'DocHub'),
         __APP_VERSION__: JSON.stringify(env.VITE_APP_VERSION || '1.0.0'),
       },

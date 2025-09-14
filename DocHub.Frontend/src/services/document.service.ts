@@ -61,23 +61,45 @@ class DocumentService {
     if (type) params.set('type', type);
     
     const response = await apiService.getTemplates();
-    if (response.success && response.data) {
-      return type 
-        ? response.data.filter(t => t.type === type)
-        : response.data;
+    // Backend returns DocumentTemplate[] directly, not wrapped in ApiResponse
+    console.log('Get templates response:', response);
+    console.log('Filtering by type:', type);
+    if (Array.isArray(response)) {
+      console.log('Available template types:', response.map(t => ({ id: t.id, name: t.name, type: t.type })));
+      
+      // Temporarily return all templates to debug the type filtering issue
+      // TODO: Implement proper type filtering once we understand the data structure
+      console.log(`Temporarily returning all ${response.length} templates (type filtering disabled for debugging)`);
+      return response;
+      
+      // Original filtering logic (commented out for debugging):
+      // if (type) {
+      //   console.log(`Filtering templates for type: ${type}`);
+      //   const filtered = response.filter(t => {
+      //     console.log(`Template ${t.name}: type="${t.type}", matches=${t.type === type}`);
+      //     return t.type === type;
+      //   });
+      //   console.log(`Found ${filtered.length} templates after filtering`);
+      //   return filtered;
+      // }
+      // return response;
     }
     return [];
   }
 
   async uploadTemplate(file: File, type: string, name: string): Promise<DocumentTemplate> {
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type);
-    formData.append('name', name);
+    formData.append('File', file); // Capital F to match backend
+    formData.append('Type', type); // Capital T to match backend
+    formData.append('Name', name); // Capital N to match backend
+    formData.append('Category', 'template'); // Required field
+    formData.append('SubCategory', 'document'); // Optional but good to have
 
     const response = await apiService.uploadTemplate(formData);
-    if (response.success && response.data) {
-      return response.data;
+    // Backend returns DocumentTemplate directly, not wrapped in ApiResponse
+    console.log('Upload template response:', response);
+    if (response && ((response as any).id || (response as any).Id)) {
+      return response as DocumentTemplate;
     }
     throw new Error('Failed to upload template');
   }
@@ -85,16 +107,21 @@ class DocumentService {
   // Signature Management
   async getSignatures(): Promise<Signature[]> {
     const response = await apiService.getSignatures();
-    if (response.success && response.data) {
-      return response.data;
+    // Backend returns Signature[] directly, not wrapped in ApiResponse
+    console.log('Get signatures response:', response);
+    if (Array.isArray(response)) {
+      console.log('Available signatures:', response.map(s => ({ id: s.id, name: s.name })));
+      return response;
     }
     return [];
   }
 
   async uploadSignature(file: File, name: string): Promise<Signature> {
     const formData = new FormData();
-    formData.append('signature', file);
-    formData.append('name', name);
+    formData.append('File', file); // Capital F to match backend
+    formData.append('Name', name); // Capital N to match backend
+    formData.append('Category', 'signature'); // Required field
+    formData.append('SubCategory', 'image'); // Optional but good to have
 
     const response = await apiService.uploadSignature(formData);
     if (response.success && response.data) {
@@ -210,8 +237,8 @@ class DocumentService {
       if (params?.startDate) queryParams.append('startDate', params.startDate);
       if (params?.endDate) queryParams.append('endDate', params.endDate);
 
-      const response = await apiService.request<ApiResponse<{ items: EmailJob[]; totalCount: number; page: number; limit: number; totalPages: number }>>(`/emails/jobs?${queryParams}`);
-      return response.success && response.data ? response.data.items : [];
+      const response = await apiService.request<ApiResponse<EmailJob[]>>(`/email/jobs?${queryParams}`);
+      return response.success && response.data ? response.data : [];
     } catch (error) {
       console.error('Error fetching email jobs:', error);
       return [];

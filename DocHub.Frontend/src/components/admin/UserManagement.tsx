@@ -307,7 +307,7 @@ export function UserManagement() {
               Create User
             </Button>
           </DialogTrigger>
-          <DialogContent className="dialog-panel max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogContent className="dialog-panel max-w-md max-h-[70vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create New User</DialogTitle>
               <DialogDescription>

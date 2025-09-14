@@ -244,7 +244,7 @@ export function TabPersistenceManager() {
                     Import from Text
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="dialog-panel max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="dialog-panel max-w-2xl max-h-[70vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Import Tabs Data</DialogTitle>
                     <DialogDescription>
@@ -351,7 +351,7 @@ export function TabPersistenceManager() {
 
       {/* Export Dialog */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
-        <DialogContent className="dialog-panel max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="dialog-panel max-w-4xl max-h-[70vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Exported Tabs Data</DialogTitle>
             <DialogDescription>

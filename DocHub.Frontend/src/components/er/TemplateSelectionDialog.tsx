@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Upload, Eye, Download, Calendar, User, X } from 'lucide-react';
+import { FileText, Upload, Eye, Download, Calendar, User, X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -9,31 +9,45 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
-import { documentService, DocumentTemplate } from '../../services/document.service';
+import { documentService, DocumentTemplate, Signature } from '../../services/document.service';
 
 interface TemplateSelectionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   letterType: 'transfer_letter' | 'mutual_cessation' | 'confirmation_letter';
   onTemplateSelect: (template: DocumentTemplate) => void;
+  onComplete: (template: DocumentTemplate, signature: Signature | null) => void;
 }
 
 export function TemplateSelectionDialog({
   open,
   onOpenChange,
   letterType,
-  onTemplateSelect
+  onTemplateSelect,
+  onComplete
 }: TemplateSelectionDialogProps) {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
+  const [signatures, setSignatures] = useState<Signature[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState('existing');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  // Multi-step state
+  const [currentStep, setCurrentStep] = useState(1); // 1: Template, 2: Signature, 3: Preview
+  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
+  const [selectedSignature, setSelectedSignature] = useState<Signature | null>(null);
 
   useEffect(() => {
     if (open) {
       loadTemplates();
+      loadSignatures();
+      // Reset step when dialog opens
+      setCurrentStep(1);
+      setSelectedTemplate(null);
+      setSelectedSignature(null);
     }
   }, [open, letterType]);
 
@@ -49,12 +63,25 @@ export function TemplateSelectionDialog({
     }
   };
 
+  const loadSignatures = async () => {
+    try {
+      const data = await documentService.getSignatures();
+      setSignatures(data);
+    } catch (error) {
+      console.error('Failed to load signatures:', error);
+    }
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setUploadFile(file);
       setUploadName(file.name.replace(/\.[^/.]+$/, '')); // Remove extension
     }
+  };
+
+  const handleUploadAreaClick = () => {
+    fileInputRef.current?.click();
   };
 
   const handleUploadTemplate = async () => {
@@ -84,8 +111,33 @@ export function TemplateSelectionDialog({
   };
 
   const handleTemplateSelect = (template: DocumentTemplate) => {
+    setSelectedTemplate(template);
     onTemplateSelect(template);
-    onOpenChange(false);
+    setCurrentStep(2); // Move to signature selection
+  };
+
+  const handleSignatureSelect = (signature: Signature) => {
+    setSelectedSignature(signature);
+    setCurrentStep(3); // Move to preview/complete
+  };
+
+  const handleComplete = () => {
+    if (selectedTemplate) {
+      onComplete(selectedTemplate, selectedSignature);
+      onOpenChange(false);
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const handleNext = () => {
+    if (currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+    }
   };
 
   const getLetterTypeLabel = (type: string) => {
@@ -97,12 +149,24 @@ export function TemplateSelectionDialog({
     return labels[type as keyof typeof labels] || type;
   };
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    }).format(date);
+  const formatDate = (date: Date | string | undefined) => {
+    if (!date) return 'Unknown date';
+    
+    try {
+      const dateObj = typeof date === 'string' ? new Date(date) : date;
+      if (isNaN(dateObj.getTime())) {
+        return 'Invalid date';
+      }
+      
+      return new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      }).format(dateObj);
+    } catch (error) {
+      console.warn('Error formatting date:', error);
+      return 'Invalid date';
+    }
   };
 
   return (
@@ -194,7 +258,7 @@ export function TemplateSelectionDialog({
                                 Available Placeholders:
                               </Label>
                               <div className="flex flex-wrap gap-1">
-                                {template.placeholders.slice(0, 8).map((placeholder) => (
+                                {(template.placeholders || []).slice(0, 8).map((placeholder) => (
                                   <Badge
                                     key={placeholder}
                                     variant="outline"
@@ -203,9 +267,9 @@ export function TemplateSelectionDialog({
                                     {'{' + placeholder + '}'}
                                   </Badge>
                                 ))}
-                                {template.placeholders.length > 8 && (
+                                {(template.placeholders || []).length > 8 && (
                                   <Badge variant="outline" className="text-xs">
-                                    +{template.placeholders.length - 8} more
+                                    +{(template.placeholders || []).length - 8} more
                                   </Badge>
                                 )}
                               </div>
@@ -270,7 +334,10 @@ export function TemplateSelectionDialog({
 
                 <div className="space-y-2">
                   <Label htmlFor="template-file">Template File</Label>
-                  <div className="border-2 border-dashed border-glass-border rounded-lg p-8 text-center">
+                  <div 
+                    className="relative border-2 border-dashed border-glass-border rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
+                    onClick={handleUploadAreaClick}
+                  >
                     {uploadFile ? (
                       <div className="space-y-4">
                         <div className="flex items-center justify-center gap-2">
@@ -284,7 +351,10 @@ export function TemplateSelectionDialog({
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setUploadFile(null)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUploadFile(null);
+                            }}
                           >
                             <X className="h-4 w-4" />
                           </Button>
@@ -300,10 +370,11 @@ export function TemplateSelectionDialog({
                           </p>
                         </div>
                         <input
+                          ref={fileInputRef}
                           type="file"
                           accept=".docx"
                           onChange={handleFileUpload}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          className="hidden"
                         />
                       </div>
                     )}

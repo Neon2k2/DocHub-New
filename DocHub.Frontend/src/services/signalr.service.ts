@@ -17,13 +17,15 @@ class SignalRService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private startPromise: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
 
   constructor() {
     this.initializeConnection();
   }
 
   private initializeConnection() {
-    const signalRUrl = import.meta.env.VITE_SIGNALR_URL || 'http://localhost:5100/hubs/notifications';
+    const signalRUrl = import.meta.env.VITE_SIGNALR_URL || 'http://localhost:5120/notificationHub';
     
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl(signalRUrl, {
@@ -78,28 +80,105 @@ class SignalRService {
   }
 
   async start(): Promise<void> {
+    // If already starting, return the existing promise
+    if (this.startPromise) {
+      return this.startPromise;
+    }
+
+    // If currently stopping, wait for it to complete first
+    if (this.stopPromise) {
+      await this.stopPromise;
+    }
+
     if (!this.connection) {
       this.initializeConnection();
     }
 
+    if (!this.connection) {
+      throw new Error('Failed to initialize SignalR connection');
+    }
+
+    // Check if already connected
+    if (this.connection.state === signalR.HubConnectionState.Connected) {
+      this.isConnected = true;
+      return;
+    }
+
+    // Only start if disconnected
     if (this.connection.state === signalR.HubConnectionState.Disconnected) {
+      this.startPromise = this._performStart();
       try {
-        await this.connection.start();
-        this.isConnected = true;
-        this.reconnectAttempts = 0;
-        console.log('SignalR connection started');
-      } catch (error) {
-        console.error('Error starting SignalR connection:', error);
-        throw error;
+        await this.startPromise;
+      } finally {
+        this.startPromise = null;
       }
     }
   }
 
-  async stop(): Promise<void> {
-    if (this.connection && this.connection.state !== signalR.HubConnectionState.Disconnected) {
-      await this.connection.stop();
+  private async _performStart(): Promise<void> {
+    if (!this.connection) return;
+    
+    try {
+      await this.connection.start();
+      this.isConnected = true;
+      this.reconnectAttempts = 0;
+      console.log('SignalR connection started');
+    } catch (error) {
+      // Suppress abort errors which are expected during rapid start/stop cycles
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('SignalR start was aborted (likely due to rapid start/stop)');
+        this.isConnected = false;
+        return; // Don't throw for abort errors
+      }
+      console.error('Error starting SignalR connection:', error);
       this.isConnected = false;
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    // If already stopping, return the existing promise
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
+    // If currently starting, wait for it to complete first
+    if (this.startPromise) {
+      await this.startPromise;
+    }
+
+    if (!this.connection) {
+      this.isConnected = false;
+      return;
+    }
+
+    // Check if already disconnected
+    if (this.connection.state === signalR.HubConnectionState.Disconnected) {
+      this.isConnected = false;
+      return;
+    }
+
+    // Only stop if not already disconnecting
+    if (this.connection.state !== signalR.HubConnectionState.Disconnecting) {
+      this.stopPromise = this._performStop();
+      try {
+        await this.stopPromise;
+      } finally {
+        this.stopPromise = null;
+      }
+    }
+  }
+
+  private async _performStop(): Promise<void> {
+    if (!this.connection) return;
+    
+    try {
+      await this.connection.stop();
       console.log('SignalR connection stopped');
+    } catch (error) {
+      console.warn('Error stopping SignalR connection:', error);
+    } finally {
+      this.isConnected = false;
     }
   }
 

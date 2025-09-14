@@ -266,11 +266,18 @@ export interface EmailAnalyticsByEmployee {
 }
 
 export interface ApiResponse<T> {
-  Success: boolean;
+  Success?: boolean;
+  success?: boolean;
   Data?: T;
+  data?: T;
   Error?: {
     Code: string;
     Message: string;
+    details?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
     details?: string;
   };
 }
@@ -287,6 +294,59 @@ export interface PaginatedResponse<T> {
       hasPrevious: boolean;
     };
   };
+}
+
+// Backend pagination format
+export interface PagedResult<T> {
+  Items: T[] | { $values: T[] };
+  TotalCount: number;
+  PageNumber: number;
+  TotalPages: number;
+}
+
+// Email related types
+export interface EmailAttachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  contentType: string;
+  fileSize: number;
+  isInline: boolean;
+  contentId?: string;
+}
+
+export interface EmailJob {
+  id: string;
+  emailJobId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeEmail: string;
+  subject: string;
+  body: string;
+  status: string;
+  trackingId: string;
+  sendGridMessageId?: string;
+  createdAt: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  openedAt?: string;
+  clickedAt?: string;
+  bouncedAt?: string;
+  errorMessage?: string;
+  retryCount: number;
+  lastRetryAt?: string;
+}
+
+export interface EmailEvent {
+  id: string;
+  emailJobId: string;
+  eventType: string;
+  timestamp: string;
+  userAgent?: string;
+  ipAddress?: string;
+  url?: string;
+  reason?: string;
+  data?: string;
 }
 
 class ApiService {
@@ -362,11 +422,84 @@ class ApiService {
     return response.json();
   }
 
+  // Special method for binary responses (like ZIP files)
+  async requestBinary(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<Blob> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = this.getHeaders();
+    
+    const config: RequestInit = {
+      ...options,
+      headers: {
+        ...headers,
+        ...options.headers,
+      },
+    };
+
+    console.log(`🚀 [API-REQUEST] Starting binary request to: ${endpoint}`);
+    console.log(`📡 [API-REQUEST] Full URL: ${url}`);
+    console.log(`📋 [API-REQUEST] Method: ${config.method || 'GET'}`);
+    console.log(`🔑 [API-REQUEST] Has auth token: ${!!(headers as any).Authorization}`);
+    console.log(`📦 [API-REQUEST] Request body: ${config.body ? 'Binary data' : 'undefined'}`);
+
+    const makeRequest = async (): Promise<Blob> => {
+      console.log(`🔄 [API-REQUEST] Sending binary request...`);
+      const response = await fetch(url, config);
+      console.log(`📊 [API-REQUEST] Response status: ${response.status} ${response.statusText}`);
+      console.log(`📊 [API-REQUEST] Response headers:`, Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Try to refresh token
+          const refreshToken = localStorage.getItem('refreshToken');
+          if (refreshToken) {
+            try {
+              await this.refreshToken(refreshToken);
+              // Retry the original request
+              return await makeRequest();
+            } catch (refreshError) {
+              console.warn('Token refresh failed:', refreshError);
+              this.clearAuthToken();
+              window.location.href = '/login';
+              throw new Error('Authentication failed - please login again');
+            }
+          } else {
+            this.clearAuthToken();
+            window.location.href = '/login';
+            throw new Error('Authentication required');
+          }
+        }
+        
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP Error: ${response.status}`);
+      }
+
+      return response.blob();
+    };
+
+    try {
+      const result = await makeRequest();
+      console.log(`✅ [API-REQUEST] Binary request completed successfully`);
+      return result;
+    } catch (error) {
+      console.error(`❌ [API-REQUEST] Binary request failed: ${endpoint}`, error);
+      throw error;
+    }
+  }
+
   async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    
+    console.log(`🚀 [API-REQUEST] Starting request to: ${endpoint}`);
+    console.log(`📡 [API-REQUEST] Full URL: ${url}`);
+    console.log(`📋 [API-REQUEST] Method: ${options.method || 'GET'}`);
+    console.log(`🔑 [API-REQUEST] Has auth token: ${!!this.authToken}`);
+    console.log(`📦 [API-REQUEST] Request body:`, options.body);
     
     // For FormData, don't set Content-Type - let browser set it with boundary
     const isFormData = options.body instanceof FormData;
@@ -380,16 +513,26 @@ class ApiService {
       },
     };
 
+    console.log(`🔧 [API-REQUEST] Request config:`, {
+      method: config.method,
+      headers: Object.fromEntries(new Headers(config.headers).entries()),
+      bodyType: isFormData ? 'FormData' : typeof config.body
+    });
 
     const makeRequest = async (): Promise<T> => {
+      console.log(`🔄 [API-REQUEST] Sending request...`);
       const response = await fetch(url, config);
+      console.log(`📊 [API-REQUEST] Response status: ${response.status} ${response.statusText}`);
+      console.log(`📊 [API-REQUEST] Response headers:`, Object.fromEntries(response.headers.entries()));
       return this.handleResponse<T>(response, makeRequest);
     };
 
     try {
-      return await makeRequest();
+      const result = await makeRequest();
+      console.log(`✅ [API-REQUEST] Request completed successfully`);
+      return result;
     } catch (error) {
-      console.error(`API Request failed: ${endpoint}`, error);
+      console.error(`❌ [API-REQUEST] Request failed: ${endpoint}`, error);
       throw error;
     }
   }
@@ -404,9 +547,12 @@ class ApiService {
       token: string;
       refreshToken: string;  
       user: UserRole;
-    }>>('/auth/login', {
+    }>>('/authentication/login', {
       method: 'POST',
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({
+        EmailOrUsername: credentials.emailOrUsername,
+        Password: credentials.password
+      }),
     });
   }
 
@@ -438,18 +584,21 @@ class ApiService {
     const response = await this.request<ApiResponse<{
       token: string;
       refreshToken: string;
-    }>>('/auth/refresh', {
+    }>>('/authentication/refresh', {
       method: 'POST',
       body: JSON.stringify({ refreshToken }),
     });
 
-    if (response.Success && response.Data) {
-      const { token, refreshToken: newRefreshToken } = response.Data;
+    if ((response.Success || response.success) && (response.Data || response.data)) {
+      const responseData = response.Data || response.data;
+      if (responseData && 'token' in responseData && 'refreshToken' in responseData) {
+        const { token, refreshToken: newRefreshToken } = responseData;
       
-      // Update stored tokens
-      localStorage.setItem('authToken', token);
-      localStorage.setItem('refreshToken', newRefreshToken);
-      this.setAuthToken(token);
+        // Update stored tokens
+        localStorage.setItem('authToken', token);
+        localStorage.setItem('refreshToken', newRefreshToken);
+        this.setAuthToken(token);
+      }
     }
 
     return response;
@@ -459,7 +608,7 @@ class ApiService {
     const refreshToken = localStorage.getItem('refreshToken');
     
     if (refreshToken) {
-      await this.request<ApiResponse<void>>('/auth/logout', {
+      await this.request<ApiResponse<void>>('/authentication/logout', {
         method: 'POST',
         body: JSON.stringify({ refreshToken }),
       });
@@ -469,7 +618,158 @@ class ApiService {
     return Promise.resolve({ success: true });
   }
 
-  // Employee APIs
+  // Excel Data APIs (replacing employee APIs with Excel data for tabs)
+  async getExcelDataForTab(tabId: string): Promise<ApiResponse<FrontendExcelData>> {
+    try {
+      return await this.request<ApiResponse<FrontendExcelData>>(`/Excel/tab/${tabId}`);
+    } catch (error: any) {
+      // If Excel endpoint doesn't exist (404), return empty data
+      if (error.message?.includes('404')) {
+        return {
+          success: true,
+          data: {
+            hasData: false,
+            data: [],
+            totalCount: 0,
+            tabId: tabId
+          },
+          error: undefined
+        };
+      }
+      throw error;
+    }
+  }
+
+  // Tab Statistics APIs
+  async getTabStatistics(tabId: string): Promise<ApiResponse<TabStatistics>> {
+    try {
+      // Get tab data count
+      const tabDataResponse = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?page=1&pageSize=1`);
+      const totalRequests = tabDataResponse.data?.data?.pagination?.totalRecords || 0;
+
+      // Get templates count
+      const templatesResponse = await this.request<ApiResponse<DocumentTemplate[]>>('/File/templates');
+      const templatesCount = templatesResponse.data?.length || 0;
+
+      // Get signatures count
+      const signaturesResponse = await this.request<ApiResponse<Signature[]>>('/File/signatures');
+      const signaturesCount = signaturesResponse.data?.length || 0;
+
+      // Get pending requests (requests without generated documents)
+      const pendingResponse = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?page=1&pageSize=1000`);
+      const pendingCount = pendingResponse.data?.data?.items?.filter(item => !item.generatedDocumentId).length || 0;
+
+      return {
+        success: true,
+        data: {
+          totalRequests,
+          pendingRequests: pendingCount,
+          templatesCount,
+          signaturesCount
+        },
+        error: undefined
+      };
+    } catch (error: any) {
+      console.error('Error getting tab statistics:', error);
+      return {
+        success: true,
+        data: {
+          totalRequests: 0,
+          pendingRequests: 0,
+          templatesCount: 0,
+          signaturesCount: 0
+        },
+        error: undefined
+      };
+    }
+  }
+
+  // Document Generation APIs
+  async generateDynamicDocuments(request: DynamicDocumentGenerationRequest): Promise<ApiResponse<DynamicDocumentGenerationResponse>> {
+    // Convert to the format expected by the backend
+    const backendRequest = {
+      templateId: request.templateId || '',
+      employeeId: request.employeeIds[0] || '', // Backend expects single employee
+      data: request.additionalFieldData || {}
+    };
+
+    const response = await this.request<ApiResponse<GeneratedDocument>>('/Document/generate', {
+      method: 'POST',
+      body: JSON.stringify(backendRequest)
+    });
+
+    // Convert single document response to multiple documents format
+    if (response.success && response.data) {
+      return {
+        success: true,
+        data: {
+          success: true,
+          message: 'Document generated successfully',
+          generatedDocuments: [{
+            documentId: response.data.id,
+            templateId: response.data.templateId,
+            employeeId: request.employeeIds[0] || '',
+            content: response.data.content || '',
+            placeholderData: request.additionalFieldData || {},
+            generatedAt: response.data.generatedAt,
+            downloadUrl: `/Document/${response.data.id}/download`
+          }],
+          errors: []
+        }
+      };
+    }
+
+    return {
+      success: false,
+      data: {
+        success: false,
+        message: response.error?.message || 'Failed to generate document',
+        generatedDocuments: [],
+        errors: [response.error?.message || 'Failed to generate document']
+      }
+    };
+  }
+
+  // Get generated documents for a tab
+  async getGeneratedDocuments(tabId: string): Promise<ApiResponse<GeneratedDocument[]>> {
+    try {
+      // Get tab data with generated documents
+      const response = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?page=1&pageSize=1000`);
+      const documents: GeneratedDocument[] = [];
+      
+      if (response.data?.data?.items) {
+        for (const item of response.data.data.items) {
+          if (item.generatedDocumentId) {
+            documents.push({
+              id: item.generatedDocumentId,
+              templateId: item.templateId || '',
+              employeeId: item.employeeId || '',
+              content: item.generatedContent || '',
+              placeholderData: typeof item.data === 'string' ? JSON.parse(item.data) : (item.data || {}),
+              generatedBy: item.generatedBy || 'System',
+              generatedAt: item.generatedAt || item.createdAt,
+              downloadUrl: `/Document/${item.generatedDocumentId}/download`
+            });
+          }
+        }
+      }
+
+      return {
+        success: true,
+        data: documents,
+        error: undefined
+      };
+    } catch (error: any) {
+      console.error('Error getting generated documents:', error);
+      return {
+        success: true,
+        data: [],
+        error: undefined
+      };
+    }
+  }
+
+  // Legacy Employee APIs (keeping for compatibility but redirecting to Excel data)
   async getEmployees(params?: {
     page?: number;
     limit?: number;
@@ -478,63 +778,77 @@ class ApiService {
     status?: string;
     tabId?: string;
   }): Promise<PaginatedResponse<Employee>> {
-    const queryParams = new URLSearchParams();
-    if (params?.page) queryParams.set('page', params.page.toString());
-    if (params?.limit) queryParams.set('limit', params.limit.toString());
-    if (params?.search) queryParams.set('search', params.search);
-    if (params?.department) queryParams.set('department', params.department);
-    if (params?.status) queryParams.set('status', params.status);
-    if (params?.tabId) queryParams.set('tabId', params.tabId);
+    // If tabId is provided, get Excel data instead
+    if (params?.tabId) {
+      try {
+        const excelResponse = await this.getExcelDataForTab(params.tabId);
+        if (excelResponse.Success && excelResponse.Data) {
+          // Convert Excel data to Employee format
+          const employees: Employee[] = excelResponse.Data.data.map((row, index) => {
+            const firstName = row.first_name || row.firstName || row.name || 'Unknown';
+            const lastName = row.last_name || row.lastName || '';
+            return {
+              id: `excel-${index}`,
+              employeeId: row.employee_id || row.employeeId || `EMP${index + 1}`,
+              firstName,
+              lastName,
+              name: `${firstName} ${lastName}`.trim(),
+              email: row.email || row.email_address || '',
+              phone: row.phone || row.phone_number || '',
+              department: row.department || row.dept || '',
+              designation: row.position || row.job_title || row.title || '',
+              position: row.position || row.job_title || row.title || '',
+              joiningDate: row.hire_date || row.hireDate || new Date().toISOString(),
+              hireDate: row.hire_date || row.hireDate || new Date().toISOString(),
+              status: (row.status || 'active') as 'active' | 'inactive',
+              manager: row.manager || row.manager_name || '',
+              managerId: row.manager_id || row.managerId || null,
+              location: row.location || row.city || '',
+              address: row.address || '',
+              city: row.city || '',
+              state: row.state || '',
+              zipCode: row.zip_code || row.zipCode || '',
+              country: row.country || '',
+              salary: row.salary || null,
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+          });
 
-    const response = await this.request<ApiResponse<PagedResult<Employee>>>(`/er/employees?${queryParams}`);
-    
-    // Map backend response to frontend format
-    if (response.Success && response.Data) {
-      const backendData = response.Data;
-      
-      // Handle $values array from .NET serialization
-      let items: Employee[] = [];
-      if (backendData.Items) {
-        let rawItems: any[] = [];
-        if (Array.isArray(backendData.Items)) {
-          rawItems = backendData.Items;
-        } else if (backendData.Items.$values && Array.isArray(backendData.Items.$values)) {
-          rawItems = backendData.Items.$values;
+          return {
+            success: true,
+            data: {
+              items: employees,
+              pagination: {
+                currentPage: params.page || 1,
+                totalPages: 1,
+                totalRecords: employees.length,
+                hasNext: false,
+                hasPrevious: false
+              }
+            }
+          };
         }
-        
-        // Map backend employee data to frontend format
-        items = rawItems.map((emp: any) => ({
-          id: emp.Id || emp.id,
-          employeeId: emp.EmployeeId || emp.employeeId,
-          name: emp.Name || emp.name || `${emp.FirstName || emp.firstName || ''} ${emp.LastName || emp.lastName || ''}`.trim(),
-          email: emp.Email || emp.email || '',
-          phone: emp.Phone || emp.phone || '',
-          department: emp.Department || emp.department || '',
-          designation: emp.Position || emp.position || emp.Designation || emp.designation || '',
-          joiningDate: emp.JoiningDate || emp.joiningDate || '',
-          relievingDate: emp.RelievingDate || emp.relievingDate || undefined,
-          status: (emp.IsActive || emp.isActive) ? 'active' : 'inactive',
-          manager: emp.Manager || emp.manager || '',
-          location: emp.Location || emp.location || ''
-        }));
+      } catch (error) {
+        console.warn('Failed to get Excel data for tab, returning empty result:', error);
       }
-      
-      return {
-        success: true,
-        data: {
-          items: items,
-          pagination: {
-            currentPage: backendData.PageNumber || 1,
-            totalPages: backendData.TotalPages || 1,
-            totalRecords: backendData.TotalCount || 0,
-            hasNext: (backendData.PageNumber || 1) < (backendData.TotalPages || 1),
-            hasPrevious: (backendData.PageNumber || 1) > 1
-          }
-        }
-      };
-    } else {
-      throw new Error(response.Error?.Message || 'Failed to fetch employees');
     }
+
+    // Return empty result if no tabId or Excel data fails
+    return {
+      success: true,
+      data: {
+        items: [],
+        pagination: {
+          currentPage: params?.page || 1,
+          totalPages: 0,
+          totalRecords: 0,
+          hasNext: false,
+          hasPrevious: false
+        }
+      }
+    };
   }
 
   async getEmployee(id: string): Promise<ApiResponse<Employee>> {
@@ -600,11 +914,11 @@ class ApiService {
 
   // Document Template APIs
   async getTemplates(): Promise<ApiResponse<DocumentTemplate[]>> {
-    return this.request<ApiResponse<DocumentTemplate[]>>('/er/templates');
+    return this.request<ApiResponse<DocumentTemplate[]>>('/File/templates');
   }
 
   async uploadTemplate(template: FormData): Promise<ApiResponse<DocumentTemplate>> {
-    return this.request<ApiResponse<DocumentTemplate>>('/er/templates/upload', {
+    return this.request<ApiResponse<DocumentTemplate>>('/File/templates', {
       method: 'POST',
       body: template,
       headers: {
@@ -615,11 +929,11 @@ class ApiService {
 
   // Signature APIs
   async getSignatures(): Promise<ApiResponse<Signature[]>> {
-    return this.request<ApiResponse<Signature[]>>('/er/signatures');
+    return this.request<ApiResponse<Signature[]>>('/File/signatures');
   }
 
   async uploadSignature(signature: FormData): Promise<ApiResponse<Signature>> {
-    return this.request<ApiResponse<Signature>>('/er/signatures/upload', {
+    return this.request<ApiResponse<Signature>>('/File/signatures', {
       method: 'POST',
       body: signature,
       headers: {
@@ -629,7 +943,7 @@ class ApiService {
   }
 
   async deleteSignature(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/er/signatures/${id}`, {
+    return this.request<ApiResponse<void>>(`/File/signatures/${id}`, {
       method: 'DELETE',
     });
   }
@@ -673,18 +987,21 @@ class ApiService {
 
   // Excel Data APIs
   async uploadExcelFile(formData: FormData, tabId: string): Promise<ApiResponse<any>> {
-    // Debug logging
-    console.log('Uploading Excel file with FormData:', {
+    console.log('🌐 [API-SERVICE] Starting Excel file upload');
+    console.log('📋 [API-SERVICE] Upload parameters:', {
       hasFile: formData.has('file'),
       tabId: tabId,
       description: formData.get('description'),
-      metadata: formData.get('metadata')
+      metadata: formData.get('metadata'),
+      authToken: this.authToken ? 'Present' : 'Missing'
     });
     
     if (!tabId) {
+      console.error('❌ [API-SERVICE] TabId is required for Excel upload');
       throw new Error('TabId is required for Excel upload');
     }
     
+    console.log('🔄 [API-SERVICE] Making request to /excel/tab/{tabId}');
     return this.request<ApiResponse<any>>(`/excel/tab/${tabId}`, {
       method: 'POST',
       body: formData,
@@ -694,9 +1011,6 @@ class ApiService {
     });
   }
 
-  async getExcelDataForTab(tabId: string): Promise<ApiResponse<any>> {
-    return this.request<ApiResponse<any>>(`/excel/tab/${tabId}`);
-  }
 
   async deleteExcelDataForTab(tabId: string): Promise<ApiResponse<void>> {
     return this.request<ApiResponse<void>>(`/excel/tab/${tabId}`, {
@@ -737,55 +1051,37 @@ class ApiService {
     });
   }
 
-  // Document Request APIs
-  async getDocumentRequests(params: {
+  // Tab Data APIs (replacing document requests with tab data)
+  async getTabData(tabId: string, params: {
     page?: number;
-    limit?: number;
-    documentType?: string;
-    status?: string;
-    employeeId?: string;
-    approverId?: string;
-  } = {}): Promise<PaginatedResponse<DocumentRequest>> {
+    pageSize?: number;
+  } = {}): Promise<PaginatedResponse<TabDataRecord>> {
     const queryParams = new URLSearchParams();
     
     if (params.page) queryParams.append('page', params.page.toString());
-    if (params.limit) queryParams.append('limit', params.limit.toString());
-    if (params.documentType) queryParams.append('documentType', params.documentType);
-    if (params.status) queryParams.append('status', params.status);
-    if (params.employeeId) queryParams.append('employeeId', params.employeeId);
-    if (params.approverId) queryParams.append('approverId', params.approverId);
+    if (params.pageSize) queryParams.append('pageSize', params.pageSize.toString());
 
-    const response = await this.request<ApiResponse<PagedResult<DocumentRequest>>>(`/documentrequests?${queryParams}`);
+    const response = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?${queryParams}`);
     
     // Map backend response to frontend format
-    if (response.Success && response.Data) {
-      const backendData = response.Data;
-      
-      // Handle $values array from .NET serialization
-      let items: DocumentRequest[] = [];
-      if (backendData.Items) {
-        if (Array.isArray(backendData.Items)) {
-          items = backendData.Items;
-        } else if (backendData.Items.$values && Array.isArray(backendData.Items.$values)) {
-          items = backendData.Items.$values;
-        }
-      }
+    if (response.success && response.data) {
+      const backendData = response.data;
       
       return {
         success: true,
         data: {
-          items: items,
+          items: backendData.data?.items || [],
           pagination: {
-            currentPage: backendData.PageNumber || 1,
-            totalPages: backendData.TotalPages || 1,
-            totalRecords: backendData.TotalCount || 0,
-            hasNext: (backendData.PageNumber || 1) < (backendData.TotalPages || 1),
-            hasPrevious: (backendData.PageNumber || 1) > 1
+            currentPage: backendData.data?.pagination?.currentPage || 1,
+            totalPages: backendData.data?.pagination?.totalPages || 1,
+            totalRecords: backendData.data?.pagination?.totalRecords || 0,
+            hasNext: backendData.data?.pagination?.hasNext || false,
+            hasPrevious: backendData.data?.pagination?.hasPrevious || false
           }
         }
       };
     } else {
-      throw new Error(response.Error?.Message || 'Failed to fetch document requests');
+      throw new Error(response.error?.message || 'Failed to fetch tab data');
     }
   }
 
@@ -1270,7 +1566,7 @@ class ApiService {
     return this.request<ApiResponse<DocumentTemplate[]>>(`/documents/templates?${queryParams}`);
   }
 
-  async getGeneratedDocuments(params?: {
+  async getGeneratedDocumentsList(params?: {
     page?: number;
     limit?: number;
     documentType?: string;
@@ -1292,36 +1588,43 @@ class ApiService {
   // Dynamic System API Methods
   // Letter Type Management
   async getLetterTypeDefinitions(): Promise<ApiResponse<LetterTypeDefinition[]>> {
-    return this.request<ApiResponse<LetterTypeDefinition[]>>('/DynamicLetterType');
+    return this.request<ApiResponse<LetterTypeDefinition[]>>('/Tab');
   }
 
   async getLetterTypeDefinition(id: string): Promise<ApiResponse<LetterTypeDefinition>> {
-    return this.request<ApiResponse<LetterTypeDefinition>>(`/DynamicLetterType/${id}`);
+    return this.request<ApiResponse<LetterTypeDefinition>>(`/Tab/${id}`);
   }
 
-  async createLetterTypeDefinition(data: Partial<LetterTypeDefinition>): Promise<ApiResponse<LetterTypeDefinition>> {
-    return this.request<ApiResponse<LetterTypeDefinition>>('/DynamicLetterType', {
+  async createLetterTypeDefinition(data: {
+    typeKey: string;
+    displayName: string;
+    description?: string;
+    dataSourceType: string;
+    fieldConfiguration?: string;
+    isActive: boolean;
+  }): Promise<ApiResponse<LetterTypeDefinition>> {
+    return this.request<ApiResponse<LetterTypeDefinition>>('/Tab', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   }
 
   async updateLetterTypeDefinition(id: string, data: Partial<LetterTypeDefinition>): Promise<ApiResponse<LetterTypeDefinition>> {
-    return this.request<ApiResponse<LetterTypeDefinition>>(`/api/DynamicLetterType/${id}`, {
+    return this.request<ApiResponse<LetterTypeDefinition>>(`/Tab/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
   }
 
   async deleteLetterTypeDefinition(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/DynamicLetterType/${id}`, {
+    return this.request<ApiResponse<void>>(`/Tab/${id}`, {
       method: 'DELETE'
     });
   }
 
   // Dynamic Fields Management
   async getDynamicFields(letterTypeDefinitionId: string): Promise<ApiResponse<DynamicField[]>> {
-    return this.request<ApiResponse<DynamicField[]>>(`/api/DynamicField?letterTypeDefinitionId=${letterTypeDefinitionId}`);
+    return this.request<ApiResponse<DynamicField[]>>(`/Tab/${letterTypeDefinitionId}/fields`);
   }
 
   async createDynamicField(data: Partial<DynamicField>): Promise<ApiResponse<DynamicField>> {
@@ -1378,27 +1681,6 @@ class ApiService {
     });
   }
 
-  // Dynamic Document Generation
-  async generateDynamicDocuments(request: DynamicDocumentGenerationRequest): Promise<ApiResponse<DynamicDocumentGenerationResponse>> {
-    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/DynamicDocumentGeneration/generate-bulk', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    });
-  }
-
-  async generateSingleDocument(request: Omit<DynamicDocumentGenerationRequest, 'employeeIds'> & { employeeId: string }): Promise<ApiResponse<DynamicDocumentGenerationResponse>> {
-    return this.request<ApiResponse<DynamicDocumentGenerationResponse>>('/DynamicDocumentGeneration/generate-single', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    });
-  }
-
-  async previewDocument(request: Omit<DynamicDocumentGenerationRequest, 'employeeIds'> & { employeeId: string }): Promise<ApiResponse<{ previewUrl: string; documentId: string }>> {
-    return this.request<ApiResponse<{ previewUrl: string; documentId: string }>>('/DynamicDocumentGeneration/preview', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    });
-  }
 
   async validateDocumentGeneration(letterTypeDefinitionId: string, employeeIds: string[]): Promise<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>> {
     return this.request<ApiResponse<{ isValid: boolean; errors: string[]; warnings: string[] }>>('/DynamicDocumentGeneration/validate', {
@@ -1490,11 +1772,11 @@ class ApiService {
 
   // Real-time Email Tracking
   async getRealTimeEmailStats(letterTypeDefinitionId: string): Promise<ApiResponse<{ letterTypeDefinitionId: string; totalEmails: number; pendingEmails: number; sentEmails: number; deliveredEmails: number; openedEmails: number; clickedEmails: number; bouncedEmails: number; failedEmails: number; lastUpdated: string }>> {
-    return this.request<ApiResponse<{ letterTypeDefinitionId: string; totalEmails: number; pendingEmails: number; sentEmails: number; deliveredEmails: number; openedEmails: number; clickedEmails: number; bouncedEmails: number; failedEmails: number; lastUpdated: string }>>(`/api/v1/dynamic-webhooks/stats/${letterTypeDefinitionId}`);
+    return this.request<ApiResponse<{ letterTypeDefinitionId: string; totalEmails: number; pendingEmails: number; sentEmails: number; deliveredEmails: number; openedEmails: number; clickedEmails: number; bouncedEmails: number; failedEmails: number; lastUpdated: string }>>(`/dynamic-webhooks/stats/${letterTypeDefinitionId}`);
   }
 
   async getWebhookEvents(emailJobId: string): Promise<ApiResponse<{ id: string; eventType: string; timestamp: string; userAgent?: string; ipAddress?: string; url?: string; reason?: string; data?: string }[]>> {
-    return this.request<ApiResponse<{ id: string; eventType: string; timestamp: string; userAgent?: string; ipAddress?: string; url?: string; reason?: string; data?: string }[]>>(`/api/v1/dynamic-webhooks/events/${emailJobId}`);
+    return this.request<ApiResponse<{ id: string; eventType: string; timestamp: string; userAgent?: string; ipAddress?: string; url?: string; reason?: string; data?: string }[]>>(`/dynamic-webhooks/events/${emailJobId}`);
   }
 }
 
@@ -1502,16 +1784,86 @@ class ApiService {
 export interface Employee {
   id: string;
   employeeId: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   phone: string;
   department: string;
   designation: string;
+  position: string;
   joiningDate: string;
+  hireDate: string;
   relievingDate?: string;
   status: 'active' | 'inactive';
   manager: string;
+  managerId?: string;
   location: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  salary?: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TabDataRecord {
+  id: string;
+  tabId: string;
+  data: string; // JSON string
+  isActive: boolean;
+  dataSource: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FrontendExcelData {
+  id?: string;
+  headers?: string[];
+  data: Record<string, any>[];
+  fileName?: string;
+  fileSize?: number;
+  uploadedAt?: string;
+  hasData: boolean;
+  totalCount: number;
+  tabId: string;
+}
+
+export interface TabStatistics {
+  totalRequests: number;
+  pendingRequests: number;
+  templatesCount: number;
+  signaturesCount: number;
+}
+
+export interface DynamicDocumentGenerationResponse {
+  generatedDocuments: Array<{
+    documentId: string;
+    templateId: string;
+    employeeId: string;
+    content: string;
+    placeholderData: Record<string, any>;
+    generatedAt: string;
+    downloadUrl: string;
+  }>;
+  errors: string[];
+}
+
+export interface TabDataRecord {
+  id: string;
+  tabId: string;
+  employeeId?: string;
+  templateId?: string;
+  data: string;
+  generatedDocumentId?: string;
+  generatedContent?: string;
+  generatedBy?: string;
+  generatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateEmployeeRequest {
@@ -2013,14 +2365,18 @@ export interface DataExportStats {
 export interface GeneratedDocument {
   id: string;
   templateId: string;
-  templateName: string;
-  documentType: string;
-  fileName: string;
-  filePath: string;
-  fileSize: number;
+  templateName?: string;
+  documentType?: string;
+  fileName?: string;
+  filePath?: string;
+  fileSize?: number;
   generatedBy: string;
   generatedAt: string;
   metadata?: Record<string, any>;
+  employeeId?: string;
+  content?: string;
+  placeholderData?: Record<string, any>;
+  downloadUrl?: string;
 }
 
 export interface GenerateDocumentRequest {

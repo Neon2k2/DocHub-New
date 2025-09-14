@@ -1,78 +1,70 @@
-using DocHub.API.Data;
-using DocHub.API.Services;
-using DocHub.API.Services.Interfaces;
-using DocHub.API.Extensions;
+using DocHub.Core.Interfaces;
+using DocHub.Core.Interfaces.Repositories;
+using DocHub.Infrastructure.Data;
+using DocHub.Infrastructure.Repositories;
+using DocHub.Application.Services;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
-using System.Text.Json.Serialization;
-using DotNetEnv;
-
-// Load .env file
-Env.Load();
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using DocHub.Application.Hubs;
+using DocHub.Application.Middleware;
+using Syncfusion.Licensing;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// DocumentFormat.OpenXml is used for Excel processing - no license required
-
-// Configure Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/dochub-.txt", rollingInterval: RollingInterval.Day)
-    .CreateLogger();
-
-builder.Host.UseSerilog();
-
-// Add services to the container
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        options.JsonSerializerOptions.PropertyNamingPolicy = null;
-        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
-    });
-
+// Add services to the container.
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { Title = "DocHub API", Version = "v1" });
-    c.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, "DocHub.API.xml"));
-});
+builder.Services.AddSwaggerGen();
 
 // Database
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-if (!string.IsNullOrEmpty(connectionString))
-{
-    // Replace environment variable placeholders
-    connectionString = connectionString
-        .Replace("${DB_SERVER}", Environment.GetEnvironmentVariable("DB_SERVER") ?? "10.128.65.5")
-        .Replace("${DB_NAME}", Environment.GetEnvironmentVariable("DB_NAME") ?? "DocHubDB")
-        .Replace("${DB_USER}", Environment.GetEnvironmentVariable("DB_USER") ?? "DocHubUser")
-        .Replace("${DB_PASSWORD}", Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "YourPasswordHere");
-}
-
 builder.Services.AddDbContext<DocHubDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// AutoMapper
-builder.Services.AddAutoMapper(typeof(Program));
+// Repositories
+builder.Services.AddScoped<IDbContext>(provider => provider.GetRequiredService<DocHubDbContext>());
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<TableSchemaRepository>();
 
 // Services
-builder.Services.AddScoped<ILetterTypeService, LetterTypeService>();
+builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<IDocumentGenerationService, DocumentGenerationService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddScoped<IExcelService, ExcelService>();
+builder.Services.AddScoped<IFileManagementService, FileManagementService>();
+builder.Services.AddScoped<ITabManagementService, TabManagementService>();
 builder.Services.AddScoped<IExcelProcessingService, ExcelProcessingService>();
+builder.Services.AddScoped<ISignatureProcessingService, SignatureProcessingService>();
+builder.Services.AddScoped<IRealTimeService, SignalRService>();
+builder.Services.AddScoped<IDynamicTableService, DynamicTableService>();
+builder.Services.AddScoped<IDynamicLetterGenerationService, DynamicLetterGenerationService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
-builder.Services.AddScoped<ISignatureService, SignatureService>();
-builder.Services.AddScoped<IModuleService, ModuleService>();
-builder.Services.AddScoped<IFileStorageService, FileStorageService>();
-builder.Services.AddScoped<IAuditService, AuditService>();
-builder.Services.AddScoped<IWebhookService, WebhookService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IDataSeedingService, DataSeedingService>();
-builder.Services.AddScoped<ITabEmployeeService, TabEmployeeService>();
+builder.Services.AddScoped<ISignatureCleanupService, SignatureCleanupService>();
+
+// Database Initialization (Auto-migration and admin user creation)
+
+// JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var secretKey = jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret not configured");
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(secretKey)),
+            ValidateIssuer = true,
+            ValidIssuer = jwtSettings["Issuer"],
+            ValidateAudience = true,
+            ValidAudience = jwtSettings["Audience"],
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // SignalR
 builder.Services.AddSignalR();
@@ -82,84 +74,100 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:4200", "https://dochub.com")
+        policy.WithOrigins("http://localhost:3000", "http://localhost:3001", "http://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
     });
 });
 
-// Authentication & Authorization
-builder.Services.AddAuthentication("Bearer")
-    .AddJwtBearer("Bearer", options =>
-    {
-        var secretKey = builder.Configuration["Jwt:SecretKey"] ?? "YourSecretKeyHere";
-        var key = System.Text.Encoding.ASCII.GetBytes(secretKey);
-        
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(key),
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
-
-builder.Services.AddAuthorization();
-
-// Health Checks
-builder.Services.AddHealthChecks();
+// Logging
+builder.Services.AddLogging();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "DocHub API v1");
-        c.RoutePrefix = string.Empty;
-    });
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
 
 app.UseCors("AllowFrontend");
-
-// Middleware will be added later
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
-// SignalR hubs will be added later
-app.MapHealthChecks("/health");
+// Custom middleware
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
-// Ensure database is created and apply migrations
-using (var scope = app.Services.CreateScope())
+app.MapControllers();
+app.MapHub<NotificationHub>("/notificationHub");
+
+// Simple database initialization
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+var configuration = app.Services.GetRequiredService<IConfiguration>();
+
+logger.LogInformation("Starting database initialization...");
+
+try
 {
-    var context = scope.ServiceProvider.GetRequiredService<DocHubDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    // Register Syncfusion license
+    var syncfusionLicense = configuration["SyncfusionLicense"];
+    if (!string.IsNullOrEmpty(syncfusionLicense))
+    {
+        SyncfusionLicenseProvider.RegisterLicense(syncfusionLicense);
+        logger.LogInformation("Syncfusion license registered successfully");
+    }
     
-    try
+    // Apply migrations and create admin user
+    using (var scope = app.Services.CreateScope())
     {
-        // Apply pending migrations
-        await context.Database.MigrateAsync();
-        logger.LogInformation("Database migrations applied successfully");
+        var context = scope.ServiceProvider.GetRequiredService<DocHubDbContext>();
         
-        // Seed initial data
-        var seedingService = scope.ServiceProvider.GetRequiredService<IDataSeedingService>();
-        await seedingService.SeedAsync();
-        logger.LogInformation("Initial data seeded successfully");
+        // Apply migrations
+        logger.LogInformation("🔄 [STARTUP] Applying database migrations...");
+        await context.Database.MigrateAsync();
+        logger.LogInformation("✅ [STARTUP] Database migrations completed.");
+        
+        // Create admin user if it doesn't exist
+        logger.LogInformation("🔍 [STARTUP] Checking if admin user exists...");
+        var adminExists = await context.Users.AnyAsync(u => u.Email == "admin@collabera.com");
+        logger.LogInformation("👤 [STARTUP] Admin user exists: {Exists}", adminExists);
+        
+        if (!adminExists)
+        {
+            logger.LogInformation("🔄 [STARTUP] Creating admin user...");
+            var adminUser = new DocHub.Core.Entities.User
+            {
+                Username = "admin",
+                Email = "admin@collabera.com",
+                FirstName = "Admin",
+                LastName = "User",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            
+            context.Users.Add(adminUser);
+            await context.SaveChangesAsync();
+            logger.LogInformation("✅ [STARTUP] Admin user created successfully: admin@collabera.com / admin123");
+        }
+        else
+        {
+            logger.LogInformation("ℹ️ [STARTUP] Admin user already exists");
+        }
     }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "An error occurred while migrating or seeding the database");
-        throw;
-    }
+    
+    logger.LogInformation("🎉 [STARTUP] Database initialization completed successfully!");
+}
+catch (Exception ex)
+{
+    logger.LogError(ex, "Error during database initialization");
+    throw;
 }
 
 app.Run();

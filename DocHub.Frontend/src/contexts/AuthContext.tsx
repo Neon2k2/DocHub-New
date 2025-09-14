@@ -42,20 +42,20 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  console.log('AuthProvider rendering');
+  console.log('🔄 [AUTH-CONTEXT] AuthProvider rendering');
   
   const [authState, setAuthState] = useState<AuthState>(() => {
     try {
-      console.log('Initializing auth state');
+      console.log('🔧 [AUTH-CONTEXT] Initializing auth state');
       // Initialize with current auth state immediately
       const currentState = authService.getState();
-      console.log('Current auth state:', currentState);
+      console.log('📊 [AUTH-CONTEXT] Current auth state:', currentState);
       return {
         ...currentState,
         isLoading: false // Auth service initializes synchronously
       };
     } catch (error) {
-      console.error('Error initializing auth state:', error);
+      console.error('❌ [AUTH-CONTEXT] Error initializing auth state:', error);
       return {
         user: null,
         isAuthenticated: false,
@@ -76,11 +76,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = useCallback(async (credentials: { emailOrUsername: string; password: string }) => {
-    await authService.login(credentials);
+    console.log('🔐 [AUTH-CONTEXT] Login called with credentials:', { 
+      emailOrUsername: credentials.emailOrUsername, 
+      password: '***' 
+    });
+    try {
+      await authService.login(credentials);
+      console.log('✅ [AUTH-CONTEXT] Login successful');
+    } catch (error) {
+      console.error('❌ [AUTH-CONTEXT] Login failed:', error);
+      throw error;
+    }
   }, []);
 
   const logout = useCallback(async () => {
-    await authService.logout();
+    console.log('🚪 [AUTH-CONTEXT] Logout called');
+    try {
+      await authService.logout();
+      console.log('✅ [AUTH-CONTEXT] Logout successful');
+    } catch (error) {
+      console.error('❌ [AUTH-CONTEXT] Logout failed:', error);
+    }
   }, []);
 
   const hasPermission = useCallback((permission: keyof UserRole['permissions']) => {

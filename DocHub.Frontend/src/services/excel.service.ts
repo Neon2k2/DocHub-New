@@ -87,21 +87,78 @@ class ExcelService {
    */
   async uploadExcelFile(formData: FormData, tabId: string): Promise<ExcelUploadResult> {
     try {
+      console.log('🚀 [EXCEL-SERVICE] Starting Excel upload process');
+      console.log('📋 [EXCEL-SERVICE] Upload details:', {
+        tabId,
+        hasFile: formData.has('file'),
+        file: formData.get('file'),
+        description: formData.get('description'),
+        metadata: formData.get('metadata')
+      });
+
       // Upload to backend
+      console.log('🔄 [EXCEL-SERVICE] Calling API service uploadExcelFile...');
       const response = await apiService.uploadExcelFile(formData, tabId);
       
-      if (response.success) {
+      console.log('📊 [EXCEL-SERVICE] Excel upload response received:', response);
+      console.log('🔍 [EXCEL-SERVICE] Response structure analysis:', {
+        hasSuccess: 'success' in response,
+        hasSuccessCapital: 'Success' in response,
+        successValue: response.success || response.Success,
+        hasData: 'data' in response,
+        hasDataCapital: 'Data' in response,
+        dataKeys: response.data ? Object.keys(response.data) : response.Data ? Object.keys(response.Data) : 'No data'
+      });
+      
+      if (response.success || response.Success) {
+        console.log('✅ [EXCEL-SERVICE] Upload successful, processing response data...');
+        
+        // Transform the backend response to match the ExcelData interface
+        const backendData = response.data || response.Data;
+        console.log('📦 [EXCEL-SERVICE] Backend data structure:', backendData);
+        
+        // Handle the nested structure with $values arrays
+        const headers = backendData.headers?.$values || backendData.headers || [];
+        const data = backendData.data?.$values || backendData.data || [];
+        
+        console.log('📊 [EXCEL-SERVICE] Processed data:', {
+          headers: headers,
+          dataLength: data?.length,
+          dataSample: data?.slice(0, 2)
+        });
+        
+        const excelData: ExcelData = {
+          headers: Array.isArray(headers) ? headers : [],
+          data: Array.isArray(data) ? data : [],
+          fileName: backendData.fileName || 'Unknown file',
+          fileSize: backendData.fileSize || 0,
+          uploadedAt: backendData.uploadedAt ? new Date(backendData.uploadedAt) : new Date()
+        };
+        
+        console.log('✅ [EXCEL-SERVICE] Excel data processed successfully:', excelData);
+        
         return {
           success: true,
-          data: response.data
+          data: excelData
         };
       } else {
+        console.log('❌ [EXCEL-SERVICE] Upload failed:', {
+          error: response.error?.message || response.Error?.Message,
+          fullResponse: response
+        });
+        
         return {
           success: false,
-          error: response.error?.message || 'Upload failed'
+          error: response.error?.message || response.Error?.Message || 'Upload failed'
         };
       }
     } catch (error) {
+      console.error('❌ [EXCEL-SERVICE] Excel upload error:', error);
+      console.error('❌ [EXCEL-SERVICE] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred'
@@ -115,8 +172,33 @@ class ExcelService {
   async getExcelDataForTab(tabId: string): Promise<ExcelData | null> {
     try {
       const response = await apiService.getExcelDataForTab(tabId);
-      if (response.success && response.data) {
-        return response.data;
+      console.log('Get Excel data response:', response);
+      console.log('Response Data structure:', JSON.stringify(response.data || response.Data, null, 2));
+      
+      if ((response.success || response.Success) && (response.data || response.Data)) {
+        // Transform the backend response to match the ExcelData interface
+        const backendData = response.data || response.Data;
+        console.log('Backend data keys:', Object.keys(backendData));
+        console.log('Backend data values:', backendData);
+        
+        // Handle the nested structure with $values arrays
+        const headers = backendData.headers?.$values || backendData.headers || [];
+        const data = backendData.data?.$values || backendData.data || [];
+        
+        console.log('Extracted headers:', headers);
+        console.log('Extracted data length:', data.length);
+        console.log('First data row:', data[0]);
+        
+        const result = {
+          headers: Array.isArray(headers) ? headers : [],
+          data: Array.isArray(data) ? data : [],
+          fileName: backendData.fileName || 'Unknown file',
+          fileSize: backendData.fileSize || 0,
+          uploadedAt: backendData.uploadedAt ? new Date(backendData.uploadedAt) : new Date()
+        };
+        
+        console.log('Transformed Excel data:', result);
+        return result;
       }
       return null;
     } catch (error) {
@@ -131,7 +213,7 @@ class ExcelService {
   async deleteExcelDataForTab(tabId: string): Promise<boolean> {
     try {
       const response = await apiService.deleteExcelDataForTab(tabId);
-      return response.success;
+      return response.Success;
     } catch (error) {
       console.error('Failed to delete Excel data for tab:', error);
       return false;

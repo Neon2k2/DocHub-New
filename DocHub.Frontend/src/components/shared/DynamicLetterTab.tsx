@@ -1,28 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { FileText, Users, TrendingUp, Clock, Filter, Upload, Plus, Eye, Download, FileSpreadsheet, Database } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Upload, FileText, Mail, Database } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { ScrollArea } from '../ui/scroll-area';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Progress } from '../ui/progress';
-import { Separator } from '../ui/separator';
 import { EmployeeSelector } from '../er/EmployeeSelector';
-import { TemplateSelectionDialog } from '../er/TemplateSelectionDialog';
-import { DocumentPreviewDialog } from '../er/DocumentPreviewDialog';
+import { MultiStepTemplateDialog } from './MultiStepTemplateDialog';
+import { SimplePreviewDialog } from './SimplePreviewDialog';
 import { EmailComposerDialog } from '../er/EmailComposerDialog';
-import { PageHeader } from './PageHeader';
-import { StatisticsCards } from './StatisticsCards';
-import { TabbedInterface } from './TabbedInterface';
-import { Employee, apiService, LetterTypeDefinition, DynamicField, FieldType, DynamicDocumentGenerationRequest, DynamicEmailRequest, EmailPriority } from '../../services/api.service';
-import { DynamicTab, TabTemplate, TabSignature, tabService } from '../../services/tab.service';
-import { DocumentTemplate, GeneratedDocument, EmailJob } from '../../services/document.service';
-import { useDocumentRequests, DocumentRequestWithEmployee } from '../../hooks/useDocumentRequests';
+import { Employee, apiService, DynamicField, FieldType, DynamicDocumentGenerationRequest, DynamicEmailRequest, EmailPriority, TabStatistics, TabDataRecord } from '../../services/api.service';
+import { DynamicTab } from '../../services/tab.service';
+import { DocumentTemplate, GeneratedDocument, EmailJob, Signature } from '../../services/document.service';
+import { useTabData } from '../../hooks/useTabData';
 import { excelService, ExcelData } from '../../services/excel.service';
 import { ExcelUploadDialog } from './ExcelUploadDialog';
 import { toast } from 'sonner';
@@ -33,148 +25,216 @@ interface DynamicLetterTabProps {
 
 export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   const [selectedEmployees, setSelectedEmployees] = useState<Employee[]>([]);
-  const [templates, setTemplates] = useState<TabTemplate[]>([]);
-  const [signatures, setSignatures] = useState<TabSignature[]>([]);
   const [loading, setLoading] = useState(true);
   const [dynamicFields, setDynamicFields] = useState<DynamicField[]>([]);
   const [fieldData, setFieldData] = useState<Record<string, any>>({});
   
-  // Fetch document requests for this tab type
-  const { requests, loading: requestsLoading } = useDocumentRequests(tab.letterType);
-  
-  // Map DocumentRequest to the format expected by TabbedInterface
-  const mappedRequests = requests.map(request => ({
-    id: request.id,
-    employeeName: request.employeeName,
-    employeeId: request.employeeId,
-    createdAt: new Date(request.createdAt),
-    requestedBy: request.requestedBy,
-    status: request.status
-  }));
-  
-  // Dialog states - matching Experience tab pattern
-  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
-  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
-  const [showEmailDialog, setShowEmailDialog] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
-  const [generatedDocuments, setGeneratedDocuments] = useState<GeneratedDocument[]>([]);
-  const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
-  
-  // Upload form state
-  const [templateUploadForm, setTemplateUploadForm] = useState({ name: '', file: null as File | null });
-  const [uploadingTemplate, setUploadingTemplate] = useState(false);
-
   // Excel upload state
   const [showExcelUpload, setShowExcelUpload] = useState(false);
   const [excelData, setExcelData] = useState<ExcelData | null>(null);
   const [dataSourceType, setDataSourceType] = useState<'database' | 'excel' | null>(null);
+  
+  // Document generation state
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [generatedDocuments, setGeneratedDocuments] = useState<GeneratedDocument[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
+  const [selectedSignature, setSelectedSignature] = useState<Signature | null>(null);
+  
+  // Email state
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
+  
+  // Generating state
+  const [showGeneratingDialog, setShowGeneratingDialog] = useState(false);
+  const [generatingProgress, setGeneratingProgress] = useState(0);
+  
+  // Statistics state
+  const [statistics, setStatistics] = useState<TabStatistics>({
+    totalRequests: 0,
+    pendingRequests: 0,
+    templatesCount: 0,
+    signaturesCount: 0
+  });
+  
+  // Fetch tab data for this tab
+  const { data: tabData, loading: dataLoading, totalCount } = useTabData(tab.id);
+  
+  // Map data to Employee format for display - prioritize Excel data if available
+  const mappedEmployees = useMemo(() => {
+    // If we have Excel data, use it; otherwise use tabData
+    if (excelData && excelData.length > 0) {
+      console.log('🔍 [DYNAMIC-TAB] Mapping Excel data to employees:', excelData.length, 'rows');
+      const mapped = excelData.map((data, index) => ({
+        id: `excel_${index}`,
+        name: data['EMP NAME'] || `Employee ${index + 1}`,
+        firstName: data['EMP NAME'] || `Employee ${index + 1}`,
+        lastName: '',
+        email: data['EMAIL'] || '',
+        phone: '',
+        employeeId: data['EMP ID'] || `excel_${index}`,
+        department: data['DESIGNATION'] || '',
+        position: data['DESIGNATION'] || '',
+        designation: data['DESIGNATION'] || '',
+        hireDate: data['DOJ'] || '',
+        joiningDate: data['DOJ'] || '',
+        salary: data['CTC'] || 0,
+        status: 'active',
+        manager: '',
+        location: '',
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        // Additional fields from Excel
+        client: data['CLIENT'] || '',
+        lastWorkingDay: data['LWD'] || '',
+        ctc: data['CTC'] || 0,
+        // Include the raw Excel data for placeholder replacement
+        data: data
+      } as Employee & { data: any }));
+      console.log('🔍 [DYNAMIC-TAB] Mapped employees:', mapped.length, 'employees');
+      console.log('🔍 [DYNAMIC-TAB] First employee sample:', mapped[0]);
+      return mapped;
+    }
+    
+    // Fallback to tabData
+    return tabData.map((record, index) => {
+      try {
+        const data = JSON.parse(record.data);
+        return {
+          id: record.id,
+          name: data['EMP NAME'] || data['firstName'] || `Employee ${index + 1}`,
+          firstName: data['EMP NAME'] || data['firstName'] || `Employee ${index + 1}`,
+          lastName: '',
+          email: data['EMAIL'] || data['email'] || '',
+          phone: '',
+          employeeId: data['EMP ID'] || data['employeeId'] || record.id,
+          department: data['DESIGNATION'] || data['department'] || '',
+          position: data['DESIGNATION'] || data['position'] || '',
+          designation: data['DESIGNATION'] || data['designation'] || '',
+          hireDate: data['DOJ'] || data['hireDate'] || '',
+          joiningDate: data['DOJ'] || data['joiningDate'] || '',
+          salary: data['CTC'] || data['salary'] || 0,
+          status: 'active',
+          manager: '',
+          location: '',
+          isActive: true,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          // Additional fields from Excel
+          client: data['CLIENT'] || data['client'] || '',
+          lastWorkingDay: data['LWD'] || data['lastWorkingDay'] || '',
+          ctc: data['CTC'] || data['ctc'] || 0,
+          // Include the raw data for placeholder replacement
+          data: data
+        } as Employee & { data: any };
+      } catch (error) {
+        console.error('Error parsing employee data:', error);
+        return {
+          id: record.id,
+          name: `Employee ${index + 1}`,
+          firstName: `Employee ${index + 1}`,
+          lastName: '',
+          email: '',
+          phone: '',
+          employeeId: record.id,
+          department: '',
+          position: '',
+          designation: '',
+          hireDate: '',
+          joiningDate: '',
+          salary: 0,
+          status: 'active',
+          manager: '',
+          location: '',
+          isActive: true,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          client: '',
+          lastWorkingDay: '',
+          ctc: 0,
+          data: {}
+        } as Employee & { data: any };
+      }
+    });
+  }, [excelData, tabData]);
+
+  // Load statistics
+  const loadStatistics = async () => {
+    try {
+      const response = await apiService.getTabStatistics(tab.id);
+      if (response.success && response.data) {
+        setStatistics(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading statistics:', error);
+    }
+  };
 
   useEffect(() => {
+    console.log('DynamicLetterTab received tab:', tab);
     loadData();
+    loadStatistics();
   }, [tab.id]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       
-      // Load dynamic fields for this letter type
-      if (tab.letterTypeDefinition?.id) {
-        const fieldsResponse = await apiService.getDynamicFields(tab.letterTypeDefinition.id);
-        if (fieldsResponse.success && fieldsResponse.data) {
-          setDynamicFields(fieldsResponse.data);
+      // Load dynamic fields from the tab's FieldConfiguration
+      if (tab.fieldConfiguration) {
+        try {
+          console.log('Tab field configuration:', tab.fieldConfiguration);
+          const fieldConfig = typeof tab.fieldConfiguration === 'string' 
+            ? JSON.parse(tab.fieldConfiguration) 
+            : tab.fieldConfiguration;
+          
+          if (fieldConfig.fields && Array.isArray(fieldConfig.fields)) {
+            const fields: DynamicField[] = fieldConfig.fields.map((field: any, index: number) => ({
+              id: field.id || `field_${index}`,
+              fieldKey: field.fieldKey || field.fieldName,
+              fieldName: field.fieldName || field.fieldKey,
+              displayName: field.displayName || field.fieldName,
+              fieldType: field.fieldType as FieldType || FieldType.Text,
+              isRequired: field.isRequired || false,
+              defaultValue: field.defaultValue || '',
+              validationRules: field.validationRules || '',
+              orderIndex: field.order || index
+            }));
+            
+            setDynamicFields(fields);
+            console.log('Loaded dynamic fields:', fields);
+          }
+        } catch (error) {
+          console.error('Error parsing field configuration:', error);
         }
+      } else {
+        console.log('No field configuration found for tab:', tab);
       }
-      
-      // Parse tab metadata to determine data source type
-      try {
-        if (tab.metadata) {
-          const metadata = typeof tab.metadata === 'string' 
-            ? JSON.parse(tab.metadata) 
-            : tab.metadata;
-          setDataSourceType(metadata?.dataSourceType || null);
-        } else {
-          setDataSourceType(null);
-        }
-      } catch (error) {
-        console.error('Error parsing tab metadata:', error);
-        setDataSourceType(null);
-      }
-      
-      const [templatesData, signaturesData] = await Promise.all([
-        tabService.getTemplatesForTab(tab.id),
-        tabService.getSignatures()
-      ]);
-      setTemplates(templatesData);
-      setSignatures(signaturesData);
 
-      // Load Excel data for this tab (if any exists)
+      // Load Excel data if available
       try {
-        const existingData = await excelService.getExcelDataForTab(tab.id);
-        if (existingData) {
-          setExcelData(existingData);
+        console.log('Loading Excel data for tab ID:', tab.id);
+        const excelData = await excelService.getExcelDataForTab(tab.id);
+        console.log('Loaded Excel data for tab:', excelData);
+        
+        if (excelData && excelData.data && excelData.data.length > 0) {
+          setExcelData(excelData.data);
+          setDataSourceType('excel');
+        } else {
+          setDataSourceType('database');
         }
       } catch (error) {
-        console.log('No existing Excel data found for tab:', tab.id);
+        console.error('Error loading Excel data:', error);
+        setDataSourceType('database');
       }
     } catch (error) {
-      console.error('Failed to load tab data:', error);
-      toast.error('Failed to load tab data');
+      console.error('Error loading tab data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGenerate = async (employees: Employee[]) => {
-    if (employees.length === 0) {
-      toast.error('Please select at least one employee');
-      return;
-    }
-
-    if (!tab.letterTypeDefinition?.id) {
-      toast.error('Letter type definition not found');
-      return;
-    }
-
-    setSelectedEmployees(employees);
-    
-    // Use dynamic document generation
-    try {
-      const request: DynamicDocumentGenerationRequest = {
-        letterTypeDefinitionId: tab.letterTypeDefinition.id,
-        employeeIds: employees.map(emp => emp.id),
-        includeDocumentAttachments: true,
-        additionalFieldData: fieldData
-      };
-
-      const response = await apiService.generateDynamicDocuments(request);
-      
-      if (response.success && response.data) {
-        const documents: GeneratedDocument[] = response.data.generatedDocuments.map((doc: any) => ({
-          id: doc.documentId,
-          templateId: doc.templateId || '',
-          employeeId: doc.employeeId,
-          content: doc.content || '',
-          placeholderData: doc.placeholderData || {},
-          generatedBy: 'Current User',
-          generatedAt: new Date(doc.generatedAt),
-          downloadUrl: doc.downloadUrl || ''
-        }));
-        
-        setGeneratedDocuments(documents);
-        setShowPreviewDialog(true);
-        toast.success(`Generated ${documents.length} documents successfully`);
-        
-        if (response.data.errors && response.data.errors.length > 0) {
-          toast.warning(`Some documents failed to generate: ${response.data.errors.join(', ')}`);
-        }
-      } else {
-        throw new Error(response.error?.message || 'Failed to generate documents');
-      }
-    } catch (error) {
-      console.error('Error generating documents:', error);
-      toast.error('Failed to generate documents. Please try again.');
-    }
-  };
 
   const handleSendEmail = async (employees: Employee[]) => {
     if (employees.length === 0) {
@@ -188,146 +248,172 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     }
 
     setSelectedEmployees(employees);
-    
-    // Use dynamic email sending
+    setShowEmailDialog(true);
+  };
+
+  const handleViewRequests = async () => {
     try {
-      if (employees.length === 1) {
-        // Single email
-        const request: DynamicEmailRequest = {
-          letterTypeDefinitionId: tab.letterTypeDefinition.id,
-          employeeId: employees[0].id,
-          includeDocumentAttachment: true,
-          enableTracking: true,
-          priority: EmailPriority.Normal,
-          sendImmediately: true,
-          additionalFieldData: fieldData
-        };
-
-        const response = await apiService.sendDynamicEmail(request);
-        
-        if (response.success) {
-          toast.success('Email sent successfully');
-        } else {
-          throw new Error(response.error?.message || 'Failed to send email');
-        }
+      const response = await apiService.getGeneratedDocuments(tab.id);
+      if (response.success && response.data) {
+        setGeneratedDocuments(response.data);
+        setShowPreviewDialog(true);
       } else {
-        // Bulk email
-        const request = {
-          letterTypeDefinitionId: tab.letterTypeDefinition.id,
-          employeeIds: employees.map(emp => emp.id),
-          includeDocumentAttachments: true,
-          enableTracking: true,
-          priority: EmailPriority.Normal,
-          sendImmediately: true,
-          maxEmailsPerMinute: 100
-        };
-
-        const response = await apiService.sendBulkDynamicEmails(request);
-        
-        if (response.success && response.data) {
-          toast.success(`Sent ${response.data.successfulEmails} of ${response.data.totalEmails} emails successfully`);
-          if (response.data.failedEmails > 0) {
-            toast.warning(`${response.data.failedEmails} emails failed to send`);
-          }
-        } else {
-          throw new Error(response.error?.message || 'Failed to send bulk emails');
-        }
+        toast.error('No generated documents found');
       }
     } catch (error) {
-      console.error('Error sending emails:', error);
-      toast.error('Failed to send emails. Please try again.');
+      console.error('Error loading generated documents:', error);
+      toast.error('Failed to load generated documents');
     }
   };
 
-  const handleExcelUploadSuccess = (data: ExcelData) => {
+  const handleHistory = async () => {
+    try {
+      // Load all tab data for history view
+      const response = await apiService.getTabData(tab.id, { page: 1, pageSize: 1000 });
+      if (response.success && response.data) {
+        // Show history in a dialog or navigate to history page
+        toast.info('History functionality coming soon');
+      }
+    } catch (error) {
+      console.error('Error loading history:', error);
+      toast.error('Failed to load history');
+    }
+  };
+
+  const handleExcelUploadSuccess = async (data: ExcelData) => {
     setExcelData(data);
-    toast.success(`Excel file uploaded successfully! ${data.data.length} rows loaded.`);
+    setDataSourceType('excel');
+    toast.success(`Excel file uploaded successfully! ${data.data?.length || 0} rows loaded.`);
+    
+    // Refresh the data to show the uploaded employees
+    await loadData();
   };
 
   const handleTemplateSelect = async (template: DocumentTemplate) => {
+    console.log('🔍 [DynamicLetterTab] Template selected in dialog:', template);
     setSelectedTemplate(template);
+    // Don't close dialog yet - let user proceed to signature selection
+  };
+
+  const handleTemplateAndSignatureComplete = async (template: DocumentTemplate, signature: Signature | null) => {
+    console.log('🔍 [DynamicLetterTab] Template and signature complete');
+    console.log('🔍 [DynamicLetterTab] Template:', template);
+    console.log('🔍 [DynamicLetterTab] Signature:', signature);
+    console.log('🔍 [DynamicLetterTab] Selected employees count:', selectedEmployees.length);
+    console.log('🔍 [DynamicLetterTab] Selected employees:', selectedEmployees);
+    
+    setSelectedTemplate(template);
+    setSelectedSignature(signature);
     setShowTemplateDialog(false);
     
-    try {
-      // Use the new bulk generation API
-      const response = await apiService.generateDocumentsForTab(tab.id, {
-        employeeIds: selectedEmployees.map(emp => emp.id),
-        templateId: template.id,
-        signatureId: undefined, // Will be handled in preview dialog
-        placeholderData: {
-          COMPANY_NAME: 'DocHub Technologies',
-          CURRENT_DATE: new Date().toLocaleDateString()
-        }
-      });
-
-      if (response.success && response.data) {
-        const documents: GeneratedDocument[] = response.data.generatedDocuments.map((doc: any) => ({
-          id: doc.documentId,
-          templateId: template.id,
-          employeeId: doc.employeeId,
-          content: '', // Will be populated by preview
-          placeholderData: {},
-          generatedBy: 'Current User',
-          generatedAt: new Date(doc.generatedAt),
-          downloadUrl: ''
-        }));
-        
-        setGeneratedDocuments(documents);
-        setShowPreviewDialog(true);
-        toast.success(`Generated ${documents.length} documents successfully`);
-        
-        if (response.data.errors && response.data.errors.length > 0) {
-          toast.warning(`Some documents failed to generate: ${response.data.errors.join(', ')}`);
-        }
-      } else {
-        throw new Error(response.error?.message || 'Failed to generate documents');
-      }
-    } catch (error) {
-      console.error('Error generating documents:', error);
-      toast.error('Failed to generate documents. Please try again.');
-    }
-  };
-
-  const handleDocumentsGenerated = (documents: GeneratedDocument[]) => {
-    setGeneratedDocuments(documents);
-    // Could show success message or redirect to documents list
-  };
-
-  const handleEmailsSent = (jobs: EmailJob[]) => {
-    setEmailJobs([...emailJobs, ...jobs]);
-      setShowEmailDialog(false);
-    // Could show success message or redirect to email status
-  };
-
-  const handleTemplateUpload = async () => {
-    if (!templateUploadForm.name || !templateUploadForm.file) {
-      toast.error('Please provide both template name and file');
+    // Check if employees are selected
+    if (selectedEmployees.length === 0) {
+      console.warn('⚠️ [DynamicLetterTab] No employees selected for letter generation');
+      toast.warning('Please select employees before generating letters');
       return;
     }
+    
+    // Show preview dialog instead of immediately generating
+    console.log('🔍 [DynamicLetterTab] Opening preview dialog');
+    setShowPreviewDialog(true);
+  };
 
-    setUploadingTemplate(true);
+  const handleGenerateLetters = async () => {
+    console.log('🔍 [DynamicLetterTab] Generate Letters button clicked');
+    console.log('🔍 [DynamicLetterTab] Current template:', selectedTemplate);
+    console.log('🔍 [DynamicLetterTab] Current signature:', selectedSignature);
+    console.log('🔍 [DynamicLetterTab] Selected employees:', selectedEmployees);
+    
+    if (selectedEmployees.length === 0) {
+      console.warn('⚠️ [DynamicLetterTab] No employees selected');
+      toast.warning('Please select employees before generating letters');
+      return;
+    }
+    
+    // Always open template selection dialog to allow user to confirm or change template/signature
+    console.log('🔍 [DynamicLetterTab] Opening template selection dialog');
+    setShowTemplateDialog(true);
+  };
+
+  const handleActualLetterGeneration = async () => {
+    console.log('🔍 [DynamicLetterTab] Starting actual letter generation');
+    console.log('🔍 [DynamicLetterTab] Template:', selectedTemplate);
+    console.log('🔍 [DynamicLetterTab] Signature:', selectedSignature);
+    console.log('🔍 [DynamicLetterTab] Selected employees:', selectedEmployees);
+    
+    if (!selectedTemplate || !selectedSignature) {
+      console.error('❌ [DynamicLetterTab] Missing template or signature for generation');
+      toast.error('Template and signature are required for letter generation');
+      return;
+    }
+    
     try {
-      // Create a new template object
-      const newTemplate: TabTemplate = {
-        id: `template_${Date.now()}`,
-        name: templateUploadForm.name,
-        content: '', // Will be populated by the service
-        placeholders: ['{EMPLOYEE_NAME}', '{EMPLOYEE_ID}', '{DESIGNATION}', '{DEPARTMENT}', '{JOIN_DATE}', '{RELIEVING_DATE}', '{SALARY}', '{COMPANY_NAME}'],
-        createdAt: new Date()
-      };
+      // Show generating dialog
+      setShowGeneratingDialog(true);
+      setGeneratingProgress(0);
+      
+      console.log('🔍 [DynamicLetterTab] Calling API to generate letters');
+      console.log('🔍 [DynamicLetterTab] API endpoint:', `/Tab/${tab.id}/generate-letters`);
+      console.log('🔍 [DynamicLetterTab] Request body:', {
+        employeeIds: selectedEmployees.map(emp => emp.employeeId),
+        templateId: selectedTemplate.id,
+        signaturePath: selectedSignature?.id
+      });
+      
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setGeneratingProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 200);
 
-      // Add to templates list
-      setTemplates(prev => [...prev, newTemplate]);
+      // Call the new letter generation API using binary request
+      const blob = await apiService.requestBinary(`/Tab/${tab.id}/generate-letters`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employeeIds: selectedEmployees.map(emp => emp.employeeId),
+          templateId: selectedTemplate.id,
+          signaturePath: selectedSignature?.id
+        })
+      });
+
+      console.log('✅ [DynamicLetterTab] Letters generated successfully');
+      console.log('🔍 [DynamicLetterTab] Blob size:', blob.size);
+      console.log('🔍 [DynamicLetterTab] Blob type:', blob.type);
+
+      // Complete progress
+      clearInterval(progressInterval);
+      setGeneratingProgress(100);
       
-      // Reset form
-      setTemplateUploadForm({ name: '', file: null });
+      // Create download link for the ZIP file
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `generated-letters-${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
       
-      toast.success('Template uploaded successfully');
+      // Close generating dialog after a short delay
+      setTimeout(() => {
+        setShowGeneratingDialog(false);
+        setGeneratingProgress(0);
+      }, 500);
+      
+      toast.success(`Generated letters for ${selectedEmployees.length} employees successfully`);
     } catch (error) {
-      console.error('Failed to upload template:', error);
-      toast.error('Failed to upload template');
-    } finally {
-      setUploadingTemplate(false);
+      console.error('❌ [DynamicLetterTab] Error generating letters:', error);
+      toast.error('Failed to generate letters. Please try again.');
+      setShowGeneratingDialog(false);
+      setGeneratingProgress(0);
     }
   };
 
@@ -342,430 +428,376 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <PageHeader 
-        title={tab.name}
-        description={tab.description}
-        isActive={tab.isActive}
-      />
-
-      {/* Statistics */}
-      <StatisticsCards 
-        totalRequests={requests.length}
-        pending={requests.filter(r => r.status === 'Pending').length}
-        approved={requests.filter(r => r.status === 'Approved').length}
-        thisMonth={requests.filter(r => {
-          const requestDate = new Date(r.createdAt);
-          const now = new Date();
-          return requestDate.getMonth() === now.getMonth() && requestDate.getFullYear() === now.getFullYear();
-        }).length}
-        templates={templates.length}
-        signatures={signatures.length}
-      />
-
-      {/* Main Content */}
-      <TabbedInterface 
-        tabName={tab.name}
-        requests={mappedRequests}
-        loading={requestsLoading}
-        children={
-          <div className="space-y-6">
-            {/* Data Source Actions */}
-            <Card className="glass-panel border-glass-border">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Database className="h-5 w-5 text-blue-500" />
-                    <div>
-                      <h3 className="font-semibold">Employee Data</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {dataSourceType === 'excel' && excelData
-                          ? `Loaded ${excelData.data.length} rows from ${excelData.fileName}`
-                          : 'Upload Excel file to populate employee data for this tab'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => setShowExcelUpload(true)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <Upload className="h-4 w-4 mr-2 text-white" />
-                      {excelData ? 'Upload New File' : 'Upload Excel File'}
-                    </Button>
-                    {excelData && (
-                      <Button
-                        onClick={() => setExcelData(null)}
-                        variant="outline"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        Clear Data
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {dataSourceType === 'database' && (
-              <Card className="glass-panel border-glass-border">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <Database className="h-5 w-5 text-blue-500" />
-                    <div>
-                      <h3 className="font-semibold">Database Connection</h3>
-                      <p className="text-sm text-muted-foreground">
-                        This tab is configured to use database data
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Dynamic Field Inputs */}
-            {dynamicFields.length > 0 && (
-              <Card className="glass-panel border-glass-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-purple-500" />
-                    Dynamic Field Data
-                  </CardTitle>
-                  <CardDescription>
-                    Configure additional field data for this letter type
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {dynamicFields.map((field) => (
-                      <div key={field.id} className="space-y-2">
-                        <Label htmlFor={field.fieldKey} className="text-sm font-medium">
-                          {field.displayName}
-                          {field.isRequired && <span className="text-red-500 ml-1">*</span>}
-                        </Label>
-                        {field.fieldType === FieldType.Text && (
-                          <Input
-                            id={field.fieldKey}
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            placeholder={field.defaultValue || `Enter ${field.displayName.toLowerCase()}`}
-                            className="glass-input"
-                          />
-                        )}
-                        {field.fieldType === FieldType.TextArea && (
-                          <Textarea
-                            id={field.fieldKey}
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            placeholder={field.defaultValue || `Enter ${field.displayName.toLowerCase()}`}
-                            className="glass-input"
-                            rows={3}
-                          />
-                        )}
-                        {field.fieldType === FieldType.Number && (
-                          <Input
-                            id={field.fieldKey}
-                            type="number"
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            placeholder={field.defaultValue || `Enter ${field.displayName.toLowerCase()}`}
-                            className="glass-input"
-                          />
-                        )}
-                        {field.fieldType === FieldType.Date && (
-                          <Input
-                            id={field.fieldKey}
-                            type="date"
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            className="glass-input"
-                          />
-                        )}
-                        {field.fieldType === FieldType.Email && (
-                          <Input
-                            id={field.fieldKey}
-                            type="email"
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            placeholder={field.defaultValue || `Enter ${field.displayName.toLowerCase()}`}
-                            className="glass-input"
-                          />
-                        )}
-                        {field.fieldType === FieldType.Currency && (
-                          <Input
-                            id={field.fieldKey}
-                            type="number"
-                            step="0.01"
-                            value={fieldData[field.fieldKey] || ''}
-                            onChange={(e) => setFieldData(prev => ({ ...prev, [field.fieldKey]: e.target.value }))}
-                            placeholder={field.defaultValue || `Enter ${field.displayName.toLowerCase()}`}
-                            className="glass-input"
-                          />
-                        )}
-                        {field.fieldType === FieldType.Boolean && (
-                          <Select
-                            value={fieldData[field.fieldKey] || ''}
-                            onValueChange={(value) => setFieldData(prev => ({ ...prev, [field.fieldKey]: value }))}
-                          >
-                            <SelectTrigger className="glass-input">
-                              <SelectValue placeholder={`Select ${field.displayName.toLowerCase()}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="true">Yes</SelectItem>
-                              <SelectItem value="false">No</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                        {field.fieldType === FieldType.Dropdown && (
-                          <Select
-                            value={fieldData[field.fieldKey] || ''}
-                            onValueChange={(value) => setFieldData(prev => ({ ...prev, [field.fieldKey]: value }))}
-                          >
-                            <SelectTrigger className="glass-input">
-                              <SelectValue placeholder={`Select ${field.displayName.toLowerCase()}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {/* This would be populated from validation rules or a separate options field */}
-                              <SelectItem value="option1">Option 1</SelectItem>
-                              <SelectItem value="option2">Option 2</SelectItem>
-                              <SelectItem value="option3">Option 3</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Excel Data Table */}
-            {excelData && (
-              <Card className="glass-panel border-glass-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileSpreadsheet className="h-5 w-5 text-green-500" />
-                    Excel Data ({excelData.data.length} rows)
-                  </CardTitle>
-                  <CardDescription>
-                    Data from {excelData.fileName} uploaded on {new Date(excelData.uploadedAt).toLocaleDateString()}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted sticky top-0">
-                          <tr>
-                            {excelData.headers.map((header, index) => (
-                              <th key={index} className="px-4 py-3 text-left font-medium">
-                                {header}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {excelData.data.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="border-b hover:bg-muted/50">
-                              {excelData.headers.map((header, colIndex) => (
-                                <td key={colIndex} className="px-4 py-3">
-                                  {row[header] || ''}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <EmployeeSelector
-              selectedEmployees={selectedEmployees}
-              onSelectionChange={setSelectedEmployees}
-              onGenerate={handleGenerate}
-              onSendEmail={handleSendEmail}
-              tabId={tab.id}
-            />
-          </div>
-        }
-      />
-
-            {/* Dialogs */}
-      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
-        <DialogContent className="dialog-panel max-w-4xl h-[80vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-neon-blue" />
-              Select {tab.name} Template
-            </DialogTitle>
-            <DialogDescription>
-              Choose an existing template or upload a new one to generate letters
-            </DialogDescription>
-          </DialogHeader>
-
-          <Tabs defaultValue="existing" className="flex-1 flex flex-col min-h-0">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="existing">Existing Templates</TabsTrigger>
-              <TabsTrigger value="upload">Upload New</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="existing" className="flex-1 mt-4 min-h-0">
-              <ScrollArea className="h-full">
-                {templates.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Templates Available</h3>
-                    <p className="text-muted-foreground">
-                      No templates available for {tab.name.toLowerCase()}. Please create a template first.
-                    </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white">{tab.name}</h1>
+          <p className="text-gray-400 mt-1">{tab.description}</p>
         </div>
-                ) : (
-                  <div className="space-y-4">
-                    {templates.map((template) => (
-                      <Card 
-                        key={template.id}
-                        className="cursor-pointer transition-colors hover:bg-muted/50"
-                        onClick={() => {
-                          // Convert TabTemplate to DocumentTemplate format
-                          const documentTemplate: DocumentTemplate = {
-                            id: template.id,
-                            name: template.name,
-                            type: tab.letterType as any,
-                            fileName: `${template.name.toLowerCase().replace(/\s+/g, '_')}.docx`,
-                            fileUrl: '', // Will be populated by the service
-                            fileSize: 0, // Will be populated by the service
-                            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                            placeholders: template.placeholders,
-                            version: 1,
-                            isActive: true,
-                            createdAt: new Date(),
-                            updatedAt: new Date(),
-                            createdBy: 'System'
-                          };
-                          handleTemplateSelect(documentTemplate);
-                        }}
-                      >
-                        <CardContent className="p-6">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold text-lg">{template.name}</h3>
-                                <Badge variant="outline" className="text-xs">v1</Badge>
-                                <Badge variant="default" className="text-xs">Active</Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground mb-2">
-                                {template.name.toLowerCase().replace(/\s+/g, '_')}_template.docx
-                              </p>
-                              <p className="text-sm text-muted-foreground mb-3">
-                                System • {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </p>
-                              <div className="flex flex-wrap gap-1">
-                                {template.placeholders.slice(0, 8).map(placeholder => (
-                                  <Badge key={placeholder} variant="outline" className="text-xs">
-                                    {placeholder}
-                                  </Badge>
-                                ))}
-                                {template.placeholders.length > 8 && (
-                                  <Badge variant="outline" className="text-xs">
-                                    +{template.placeholders.length - 8} more
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 ml-4">
-                              <Button variant="ghost" size="sm" className="h-8">
-                                <Eye className="h-4 w-4 mr-1" />
-                                Preview
-              </Button>
-                              <Button variant="ghost" size="sm" className="h-8">
-                                <Download className="h-4 w-4 mr-1" />
-                                Download
-              </Button>
-              </div>
-              </div>
-            </CardContent>
-          </Card>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
-            </TabsContent>
-
-            <TabsContent value="upload" className="flex-1 mt-4 min-h-0 overflow-y-auto">
-              <div className="space-y-6">
-                <div className="text-center py-8">
-                  <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Upload New Template</h3>
-                  <p className="text-muted-foreground mb-6">
-                    Upload a new {tab.name.toLowerCase()} template to get started
-                  </p>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="template-name">Template Name</Label>
-                    <Input 
-                      id="template-name" 
-                      placeholder="Enter template name"
-                      value={templateUploadForm.name}
-                      onChange={(e) => setTemplateUploadForm(prev => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="template-file">Template File</Label>
-                    <div className="flex items-center gap-2">
-                      <Input 
-                        id="template-file"
-                        type="file"
-                        accept=".docx,.doc"
-                        onChange={(e) => setTemplateUploadForm(prev => ({ ...prev, file: e.target.files?.[0] || null }))}
-                        className="flex-1"
-                      />
-              <Button 
-                variant="outline" 
-                        onClick={handleTemplateUpload}
-                        disabled={!templateUploadForm.name || !templateUploadForm.file || uploadingTemplate}
-              >
-                        {uploadingTemplate ? 'Uploading...' : 'Upload'}
-              </Button>
-                    </div>
-                  </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+            tab.isActive 
+              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+          }`}>
+            {tab.isActive ? 'Active' : 'Inactive'}
+          </span>
         </div>
       </div>
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
 
-      {selectedTemplate && (
-        <DocumentPreviewDialog
-          open={showPreviewDialog}
-          onOpenChange={setShowPreviewDialog}
-          template={selectedTemplate}
-          employees={selectedEmployees}
-          onDocumentsGenerated={handleDocumentsGenerated}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-400">Total Requests</p>
+                <p className="text-2xl font-bold text-white">{statistics.totalRequests}</p>
+              </div>
+              <FileText className="h-8 w-8 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-400">Pending</p>
+                <p className="text-2xl font-bold text-white">{statistics.pendingRequests}</p>
+              </div>
+              <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center">
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-400">Templates</p>
+                <p className="text-2xl font-bold text-white">{statistics.templatesCount}</p>
+              </div>
+              <div className="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center">
+                <FileText className="h-4 w-4 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-400">Signatures</p>
+                <p className="text-2xl font-bold text-white">{statistics.signaturesCount}</p>
+              </div>
+              <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center">
+                <div className="h-4 w-4 text-white">✍</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Action Tabs */}
+      <div className="flex border-b border-gray-700">
+        <button
+          onClick={handleGenerateLetters}
+          disabled={selectedEmployees.length === 0}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <FileText className="h-4 w-4" />
+          Generate Letters
+        </button>
+        
+        <button
+          onClick={handleViewRequests}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-white border-b-2 border-blue-500"
+        >
+          <FileText className="h-4 w-4" />
+          View Requests
+        </button>
+        
+        <button
+          onClick={handleHistory}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600"
+        >
+          <FileText className="h-4 w-4" />
+          History
+        </button>
+      </div>
+
+      {/* Employee Data Section */}
+      <Card className="glass-panel border-glass-border">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Database className="h-6 w-6 text-blue-500" />
+              <div>
+                <h3 className="text-lg font-semibold text-white">Employee Data</h3>
+                <p className="text-sm text-gray-400">
+                  {dataSourceType === 'excel' && excelData && excelData.data
+                    ? `Loaded ${excelData.data.length} rows from ${excelData.fileName}`
+                    : 'Upload Excel file to populate employee data for this tab'
+                  }
+                </p>
+              </div>
+            </div>
+            {selectedEmployees.length > 0 ? (
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleGenerateLetters}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Generate Letters ({selectedEmployees.length})
+                </Button>
+                <Button
+                  onClick={() => handleSendEmail(selectedEmployees)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Send Email ({selectedEmployees.length})
+                </Button>
+                <Button
+                  onClick={() => setShowExcelUpload(true)}
+                  variant="outline"
+                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload New File
+                </Button>
+              </div>
+            ) : (
+              <Button
+                onClick={() => setShowExcelUpload(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {excelData ? 'Upload New File' : 'Upload Excel File'}
+              </Button>
+            )}
+          </div>
+
+        </CardContent>
+      </Card>
+
+      {/* Select Employees Section */}
+      <Card className="glass-panel border-glass-border">
+        <CardContent className="p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-white mb-2">Select Employees</h3>
+            <p className="text-sm text-gray-400 mb-4">Choose employees to generate letters for</p>
+            
+            {/* Search and Filters */}
+            <div className="flex gap-4 mb-4">
+              <div className="flex-1">
+                <Input
+                  placeholder="Search employees by name, ID, or department..."
+                  className="bg-gray-800 border-gray-600 text-white placeholder-gray-400"
+                />
+              </div>
+              <Button
+                variant="outline"
+                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+              >
+                Filters
+              </Button>
+            </div>
+          </div>
+
+          {/* Dynamic Table */}
+          {dynamicFields.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left p-3 text-sm font-medium text-gray-300">Select</th>
+                    {dynamicFields.map((field) => (
+                      <th key={field.id} className="text-left p-3 text-sm font-medium text-gray-300">
+                        {field.displayName}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappedEmployees.length > 0 ? (
+                    mappedEmployees.map((employee, index) => (
+                      <tr key={employee.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                        <td className="p-3">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+                            onChange={(e) => {
+                              console.log('🔍 [DYNAMIC-TAB] Checkbox changed:', e.target.checked, 'for employee:', employee.name);
+                              if (e.target.checked) {
+                                setSelectedEmployees(prev => {
+                                  const newSelection = [...prev, employee];
+                                  console.log('🔍 [DYNAMIC-TAB] Added employee, new selection:', newSelection.length);
+                                  return newSelection;
+                                });
+                              } else {
+                                setSelectedEmployees(prev => {
+                                  const newSelection = prev.filter(emp => emp.id !== employee.id);
+                                  console.log('🔍 [DYNAMIC-TAB] Removed employee, new selection:', newSelection.length);
+                                  return newSelection;
+                                });
+                              }
+                            }}
+                            checked={selectedEmployees.some(emp => emp.id === employee.id)}
+                          />
+                        </td>
+                        {dynamicFields.map((field) => {
+                          // Map fieldKey to Employee property
+                          let value = '';
+                          switch (field.fieldKey) {
+                            case 'EMP ID':
+                              value = employee.employeeId || '';
+                              break;
+                            case 'EMP NAME':
+                              value = employee.name || '';
+                              break;
+                            case 'CLIENT':
+                              value = employee.client || '';
+                              break;
+                            case 'DOJ':
+                              value = employee.hireDate || employee.joiningDate || '';
+                              break;
+                            case 'LWD':
+                              value = employee.lastWorkingDay || '';
+                              break;
+                            case 'DESIGNATION':
+                              value = employee.designation || employee.department || employee.position || '';
+                              break;
+                            case 'CTC':
+                              value = employee.ctc || employee.salary || '';
+                              break;
+                            case 'EMAIL':
+                              value = employee.email || '';
+                              break;
+                            default:
+                              value = employee[field.fieldKey as keyof Employee] as string || '';
+                          }
+                          
+                          return (
+                            <td key={field.id} className="p-3 text-sm text-gray-300">
+                              {field.fieldType === 'Date' && value 
+                                ? new Date(value).toLocaleDateString()
+                                : value || '-'
+                              }
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={dynamicFields.length + 1} className="p-8 text-center text-gray-400">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
+                            <div className="h-8 w-8 text-gray-600">👥</div>
+                          </div>
+                          <p className="text-lg font-medium mb-2">0 employees found</p>
+                          <p className="text-sm">No employees found matching your criteria</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+              <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
+                <div className="h-8 w-8 text-gray-600">👥</div>
+              </div>
+              <p className="text-lg font-medium mb-2">0 employees found</p>
+              <p className="text-sm">No employees found matching your criteria</p>
+            </div>
+          )}
+
+        </CardContent>
+      </Card>
+
+      {/* Dialogs */}
+      {showExcelUpload && (
+        <ExcelUploadDialog
+          open={showExcelUpload}
+          onOpenChange={setShowExcelUpload}
+          tabId={tab.id}
+          tabName={tab.name}
+          onUploadSuccess={handleExcelUploadSuccess}
         />
       )}
 
-      <EmailComposerDialog
-        open={showEmailDialog}
-        onOpenChange={setShowEmailDialog}
-        employees={selectedEmployees}
-        onEmailsSent={handleEmailsSent}
-      />
+      {showTemplateDialog && (
+        <MultiStepTemplateDialog
+          open={showTemplateDialog}
+          onOpenChange={setShowTemplateDialog}
+          letterType={tab.letterType || 'confirmation_letter'}
+          onTemplateSelect={handleTemplateSelect}
+          onComplete={handleTemplateAndSignatureComplete}
+          initialTemplate={selectedTemplate}
+          initialSignature={selectedSignature}
+        />
+      )}
 
-      {/* Excel Upload Dialog */}
-      <ExcelUploadDialog
-        open={showExcelUpload}
-        onOpenChange={setShowExcelUpload}
-        tabId={tab.id}
-        tabName={tab.name}
-        onUploadSuccess={handleExcelUploadSuccess}
-      />
+      {showPreviewDialog && selectedTemplate && (
+        <SimplePreviewDialog
+          open={showPreviewDialog}
+          onOpenChange={setShowPreviewDialog}
+          template={selectedTemplate}
+          signature={selectedSignature}
+          employees={selectedEmployees}
+          tabId={tab.id}
+          onGenerate={handleActualLetterGeneration}
+          onDownload={handleActualLetterGeneration}
+        />
+      )}
+
+      {showEmailDialog && (
+        <EmailComposerDialog
+          open={showEmailDialog}
+          onOpenChange={setShowEmailDialog}
+          employees={selectedEmployees || []}
+          onEmailsSent={() => {}}
+        />
+      )}
+
+      {/* Generating Dialog */}
+      {showGeneratingDialog && (
+        <Dialog open={showGeneratingDialog} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-500" />
+                Generating Documents
+              </DialogTitle>
+              <DialogDescription>
+                Please wait while we generate your documents...
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-500 mb-2">
+                  {generatingProgress}%
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${generatingProgress}%` }}
+                  ></div>
+                </div>
+              </div>
+              <div className="text-center text-sm text-gray-500">
+                Generating documents for {selectedEmployees.length} employee{selectedEmployees.length !== 1 ? 's' : ''}...
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

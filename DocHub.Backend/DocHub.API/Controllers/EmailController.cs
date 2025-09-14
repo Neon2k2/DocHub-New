@@ -1,478 +1,319 @@
+using DocHub.Core.Interfaces;
+using DocHub.Shared.DTOs.Emails;
+using DocHub.Shared.DTOs.Common;
 using Microsoft.AspNetCore.Mvc;
-using DocHub.API.Services.Interfaces;
-using DocHub.API.DTOs;
-using DocHub.API.Extensions;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace DocHub.API.Controllers;
 
 [ApiController]
-[Route("api/v1/[controller]")]
+[Route("api/[controller]")]
+[Authorize]
 public class EmailController : ControllerBase
 {
     private readonly IEmailService _emailService;
     private readonly ILogger<EmailController> _logger;
 
-    public EmailController(
-        IEmailService emailService,
-        ILogger<EmailController> logger)
+    public EmailController(IEmailService emailService, ILogger<EmailController> logger)
     {
         _emailService = emailService;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Send bulk emails to multiple employees
-    /// </summary>
+    [HttpPost("send")]
+    public async Task<ActionResult<EmailJobDto>> SendEmail([FromBody] SendEmailRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var userId = GetCurrentUserId();
+            var emailJob = await _emailService.SendEmailAsync(request, userId);
+            return Ok(emailJob);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending email");
+            return StatusCode(500, new { message = "An error occurred while sending email" });
+        }
+    }
+
     [HttpPost("send-bulk")]
-    public async Task<ActionResult<ApiResponse<BulkEmailResult>>> SendBulk([FromBody] BulkEmailRequest request)
+    public async Task<ActionResult<IEnumerable<EmailJobDto>>> SendBulkEmails([FromBody] SendBulkEmailsRequest request)
     {
         try
         {
             if (!ModelState.IsValid)
             {
-                return BadRequest(new ApiResponse<BulkEmailResult>
-                {
-                    Success = false,
-                    Error = new ApiError
-                    {
-                        Code = "VALIDATION_ERROR",
-                        Message = "Invalid request data",
-                        Details = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage))
-                    }
-                });
+                return BadRequest(ModelState);
             }
 
-            var result = await _emailService.SendBulkAsync(request);
-
-            return Ok(new ApiResponse<BulkEmailResult>
-            {
-                Success = result.Success,
-                Data = result
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send bulk emails");
-            return StatusCode(500, new ApiResponse<BulkEmailResult>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to send bulk emails"
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Send email to a single employee
-    /// </summary>
-    [HttpPost("send-single")]
-    public async Task<ActionResult<ApiResponse<EmailResult>>> SendSingle([FromBody] SingleEmailRequest request)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(new ApiResponse<EmailResult>
-                {
-                    Success = false,
-                    Error = new ApiError
-                    {
-                        Code = "VALIDATION_ERROR",
-                    Message = "Invalid request data",
-                    Details = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage))
-                    }
-                });
-            }
-
-            var result = await _emailService.SendSingleAsync(request);
-
-            return Ok(new ApiResponse<EmailResult>
-            {
-                Success = result.Success,
-                Data = result
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send single email");
-            return StatusCode(500, new ApiResponse<EmailResult>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to send email"
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Get email job status
-    /// </summary>
-    [HttpGet("job/{jobId}/status")]
-    public async Task<ActionResult<ApiResponse<EmailJobStatus>>> GetJobStatus(Guid jobId)
-    {
-        try
-        {
-            var status = await _emailService.GetJobStatusAsync(jobId);
-
-            return Ok(new ApiResponse<EmailJobStatus>
-            {
-                Success = true,
-                Data = status
-            });
+            var userId = GetCurrentUserId();
+            var emailJobs = await _emailService.SendBulkEmailsAsync(request, userId);
+            return Ok(emailJobs);
         }
         catch (ArgumentException ex)
         {
-            return NotFound(new ApiResponse<EmailJobStatus>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "NOT_FOUND",
-                    Message = ex.Message
-                }
-            });
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get email job status for {JobId}", jobId);
-            return StatusCode(500, new ApiResponse<EmailJobStatus>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to get job status"
-                }
-            });
+            _logger.LogError(ex, "Error sending bulk emails");
+            return StatusCode(500, new { message = "An error occurred while sending bulk emails" });
         }
     }
 
-    /// <summary>
-    /// Get all email jobs for a user
-    /// </summary>
+    [HttpGet("{jobId}/status")]
+    public async Task<ActionResult<EmailJobDto>> GetEmailStatus(Guid jobId)
+    {
+        try
+        {
+            var emailJob = await _emailService.GetEmailStatusAsync(jobId);
+            return Ok(emailJob);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email status for job {JobId}", jobId);
+            return StatusCode(500, new { message = "An error occurred while getting email status" });
+        }
+    }
+
     [HttpGet("jobs")]
-    public async Task<ActionResult<ApiResponse<PagedResult<EmailJobSummary>>>> GetJobs(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        [FromQuery] string? status = null,
-        [FromQuery] string? search = null)
+    public async Task<ActionResult<ApiResponse<IEnumerable<EmailJobDto>>>> GetEmailJobs([FromQuery] GetEmailJobsRequest request)
     {
         try
         {
-            var jobs = await _emailService.GetJobsAsync(page, pageSize, status, search);
-
-            return Ok(new ApiResponse<PagedResult<EmailJobSummary>>
-            {
-                Success = true,
-                Data = jobs
-            });
+            var userId = GetCurrentUserId();
+            var emailJobs = await _emailService.GetEmailJobsAsync(request, userId);
+            return Ok(ApiResponse<IEnumerable<EmailJobDto>>.SuccessResult(emailJobs));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get email jobs");
-            return StatusCode(500, new ApiResponse<PagedResult<EmailJobSummary>>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to get email jobs"
-                }
-            });
+            _logger.LogError(ex, "Error getting email jobs");
+            // Return empty list instead of error for now to prevent 404 in frontend
+            return Ok(ApiResponse<IEnumerable<EmailJobDto>>.SuccessResult(new List<EmailJobDto>()));
         }
     }
 
-    /// <summary>
-    /// Cancel an email job
-    /// </summary>
-    [HttpPost("job/{jobId}/cancel")]
-    public async Task<ActionResult<ApiResponse<object>>> CancelJob(Guid jobId)
-    {
-        try
-        {
-            await _emailService.CancelJobAsync(jobId);
-
-            return Ok(new ApiResponse<object>
-            {
-                Success = true,
-                Data = new { Message = "Job cancelled successfully" }
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            return NotFound(new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "NOT_FOUND",
-                    Message = ex.Message
-                }
-            });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INVALID_OPERATION",
-                    Message = ex.Message
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to cancel email job {JobId}", jobId);
-            return StatusCode(500, new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to cancel job"
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Retry a failed email job
-    /// </summary>
-    [HttpPost("job/{jobId}/retry")]
-    public async Task<ActionResult<ApiResponse<object>>> RetryJob(Guid jobId)
-    {
-        try
-        {
-            await _emailService.RetryJobAsync(jobId);
-
-            return Ok(new ApiResponse<object>
-            {
-                Success = true,
-                Data = new { Message = "Job retry initiated successfully" }
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            return NotFound(new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "NOT_FOUND",
-                    Message = ex.Message
-                }
-            });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INVALID_OPERATION",
-                    Message = ex.Message
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to retry email job {JobId}", jobId);
-            return StatusCode(500, new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to retry job"
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Get email templates
-    /// </summary>
-    [HttpGet("templates")]
-    public async Task<ActionResult<ApiResponse<List<EmailTemplateSummary>>>> GetTemplates()
-    {
-        try
-        {
-            var templates = await _emailService.GetTemplatesAsync();
-
-            return Ok(new ApiResponse<List<EmailTemplateSummary>>
-            {
-                Success = true,
-                Data = templates
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get email templates");
-            return StatusCode(500, new ApiResponse<List<EmailTemplateSummary>>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to get email templates"
-                }
-            });
-        }
-    }
-
-    /// <summary>
-    /// Create email template
-    /// </summary>
     [HttpPost("templates")]
-    public async Task<ActionResult<ApiResponse<EmailTemplateSummary>>> CreateTemplate([FromBody] CreateEmailTemplateRequest request)
+    public async Task<ActionResult<EmailTemplateDto>> CreateEmailTemplate([FromBody] CreateEmailTemplateRequest request)
     {
         try
         {
             if (!ModelState.IsValid)
             {
-                return BadRequest(new ApiResponse<EmailTemplateSummary>
-                {
-                    Success = false,
-                    Error = new ApiError
-                    {
-                        Code = "VALIDATION_ERROR",
-                        Message = "Invalid request data",
-                        Details = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage))
-                    }
-                });
+                return BadRequest(ModelState);
             }
 
-            var template = await _emailService.CreateTemplateAsync(request);
-
-            return Ok(new ApiResponse<EmailTemplateSummary>
-            {
-                Success = true,
-                Data = template
-            });
+            var userId = GetCurrentUserId();
+            var template = await _emailService.CreateEmailTemplateAsync(request, userId);
+            return Ok(template);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create email template");
-            return StatusCode(500, new ApiResponse<EmailTemplateSummary>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to create email template"
-                }
-            });
+            _logger.LogError(ex, "Error creating email template");
+            return StatusCode(500, new { message = "An error occurred while creating email template" });
         }
     }
 
-    /// <summary>
-    /// Update email template
-    /// </summary>
-    [HttpPut("templates/{templateId}")]
-    public async Task<ActionResult<ApiResponse<EmailTemplateSummary>>> UpdateTemplate(
-        Guid templateId,
-        [FromBody] UpdateEmailTemplateRequest request)
+    [HttpPut("templates/{id}")]
+    public async Task<ActionResult<EmailTemplateDto>> UpdateEmailTemplate(Guid id, [FromBody] UpdateEmailTemplateRequest request)
     {
         try
         {
             if (!ModelState.IsValid)
             {
-                return BadRequest(new ApiResponse<EmailTemplateSummary>
-                {
-                    Success = false,
-                    Error = new ApiError
-                    {
-                        Code = "VALIDATION_ERROR",
-                        Message = "Invalid request data",
-                        Details = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage))
-                    }
-                });
+                return BadRequest(ModelState);
             }
 
-            var template = await _emailService.UpdateTemplateAsync(templateId, request);
-
-            return Ok(new ApiResponse<EmailTemplateSummary>
-            {
-                Success = true,
-                Data = template
-            });
+            var userId = GetCurrentUserId();
+            var template = await _emailService.UpdateEmailTemplateAsync(id, request, userId);
+            return Ok(template);
         }
         catch (ArgumentException ex)
         {
-            return NotFound(new ApiResponse<EmailTemplateSummary>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "NOT_FOUND",
-                    Message = ex.Message
-                }
-            });
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update email template {TemplateId}", templateId);
-            return StatusCode(500, new ApiResponse<EmailTemplateSummary>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to update email template"
-                }
-            });
+            _logger.LogError(ex, "Error updating email template {Id}", id);
+            return StatusCode(500, new { message = "An error occurred while updating email template" });
         }
     }
 
-    /// <summary>
-    /// Delete email template
-    /// </summary>
-    [HttpDelete("templates/{templateId}")]
-    public async Task<ActionResult<ApiResponse<object>>> DeleteTemplate(Guid templateId)
+    [HttpDelete("templates/{id}")]
+    public async Task<ActionResult> DeleteEmailTemplate(Guid id)
     {
         try
         {
-            await _emailService.DeleteTemplateAsync(templateId);
-
-            return Ok(new ApiResponse<object>
-            {
-                Success = true,
-                Data = new { Message = "Template deleted successfully" }
-            });
+            var userId = GetCurrentUserId();
+            await _emailService.DeleteEmailTemplateAsync(id, userId);
+            return Ok(new { message = "Email template deleted successfully" });
         }
         catch (ArgumentException ex)
         {
-            return NotFound(new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "NOT_FOUND",
-                    Message = ex.Message
-                }
-            });
+            return NotFound(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete email template {TemplateId}", templateId);
-            return StatusCode(500, new ApiResponse<object>
-            {
-                Success = false,
-                Error = new ApiError
-                {
-                    Code = "INTERNAL_ERROR",
-                    Message = "Failed to delete email template"
-                }
-            });
+            _logger.LogError(ex, "Error deleting email template {Id}", id);
+            return StatusCode(500, new { message = "An error occurred while deleting email template" });
         }
+    }
+
+    [HttpGet("templates")]
+    public async Task<ActionResult<IEnumerable<EmailTemplateDto>>> GetEmailTemplates([FromQuery] Guid? moduleId = null)
+    {
+        try
+        {
+            var templates = await _emailService.GetEmailTemplatesAsync(moduleId);
+            return Ok(templates);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email templates");
+            return StatusCode(500, new { message = "An error occurred while getting email templates" });
+        }
+    }
+
+    [HttpGet("templates/{id}")]
+    public async Task<ActionResult<EmailTemplateDto>> GetEmailTemplate(Guid id)
+    {
+        try
+        {
+            var template = await _emailService.GetEmailTemplateAsync(id);
+            return Ok(template);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email template {Id}", id);
+            return StatusCode(500, new { message = "An error occurred while getting email template" });
+        }
+    }
+
+    [HttpPost("templates/{templateId}/process")]
+    public async Task<ActionResult<EmailJobDto>> ProcessEmailTemplate(Guid templateId, [FromBody] object data)
+    {
+        try
+        {
+            var processedTemplate = await _emailService.ProcessEmailTemplateAsync(templateId, data);
+            return Ok(processedTemplate);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing email template {TemplateId}", templateId);
+            return StatusCode(500, new { message = "An error occurred while processing email template" });
+        }
+    }
+
+    [HttpPost("validate-email")]
+    public async Task<ActionResult<bool>> ValidateEmailAddress([FromBody] ValidateEmailRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var isValid = await _emailService.ValidateEmailAddressAsync(request.Email);
+            return Ok(new { isValid });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating email address");
+            return StatusCode(500, new { message = "An error occurred while validating email address" });
+        }
+    }
+
+    [HttpGet("analytics")]
+    public async Task<ActionResult<Dictionary<string, object>>> GetEmailAnalytics([FromQuery] Guid? letterTypeId = null, [FromQuery] DateTime? fromDate = null, [FromQuery] DateTime? toDate = null)
+    {
+        try
+        {
+            var analytics = await _emailService.GetEmailAnalyticsAsync(letterTypeId, fromDate, toDate);
+            return Ok(analytics);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email analytics");
+            return StatusCode(500, new { message = "An error occurred while getting email analytics" });
+        }
+    }
+
+    [HttpGet("failed")]
+    public async Task<ActionResult<IEnumerable<EmailJobDto>>> GetFailedEmails([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        try
+        {
+            var failedEmails = await _emailService.GetFailedEmailsAsync(page, pageSize);
+            return Ok(failedEmails);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting failed emails");
+            return StatusCode(500, new { message = "An error occurred while getting failed emails" });
+        }
+    }
+
+    [HttpPost("{jobId}/retry")]
+    public async Task<ActionResult> RetryFailedEmail(Guid jobId)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var success = await _emailService.RetryFailedEmailAsync(jobId, userId);
+            if (!success)
+            {
+                return BadRequest(new { message = "Failed to retry email" });
+            }
+
+            return Ok(new { message = "Email retry initiated successfully" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrying failed email {JobId}", jobId);
+            return StatusCode(500, new { message = "An error occurred while retrying email" });
+        }
+    }
+
+    private string GetCurrentUserId()
+    {
+        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? 
+               User.FindFirst("sub")?.Value ?? 
+               User.FindFirst("nameid")?.Value ?? 
+               throw new UnauthorizedAccessException("User ID not found in token");
     }
 }

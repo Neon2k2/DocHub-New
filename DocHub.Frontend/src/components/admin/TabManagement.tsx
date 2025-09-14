@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, FileText, Settings, Eye, Copy, Download, MoreVertical, Database, Table, Upload } from 'lucide-react';
+import { Plus, Edit2, Trash2, FileText, Settings, Eye, Copy, Download, MoreVertical, Database, Table, Upload, ArrowLeft, ArrowRight, X, Check } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -10,26 +10,59 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Loading } from '../ui/loading';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Separator } from '../ui/separator';
 import { toast } from 'sonner';
 import { DynamicTab, tabService } from '../../services/tab.service';
+import { apiService } from '../../services/api.service';
 import { notify } from '../../utils/notifications';
 import { handleError } from '../../utils/errorHandler';
+import { useAuth } from '../../contexts/AuthContext';
+
+// Field configuration types
+interface FieldConfig {
+  id: string;
+  fieldKey: string;
+  fieldName: string;
+  displayName: string;
+  fieldType: string;
+  isRequired: boolean;
+  validationRules?: string;
+  defaultValue?: string;
+  order: number;
+}
 
 export function TabManagement() {
+  const { isAuthenticated } = useAuth();
   const [tabs, setTabs] = useState<DynamicTab[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingTab, setEditingTab] = useState<DynamicTab | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Multi-step dialog state
+  const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
-    name: '',
+    typeKey: '',
+    displayName: '',
     description: '',
-    letterType: '',
-    isActive: true
+    isActive: true,
+    module: 'ER'
   });
 
   // Data source type selection
-  const [dataSource, setDataSource] = useState<'database' | 'excel'>('database');
+  const [dataSource, setDataSource] = useState<'Database' | 'Excel'>('Database');
+  
+  // Field configuration
+  const [fields, setFields] = useState<FieldConfig[]>([]);
+  const [newField, setNewField] = useState<Partial<FieldConfig>>({
+    fieldKey: '',
+    fieldName: '',
+    displayName: '',
+    fieldType: 'Text', // Always Text type for simplicity
+    isRequired: false,
+    order: 0
+  });
 
   // Data table state
   const [showDataDialog, setShowDataDialog] = useState(false);
@@ -45,58 +78,177 @@ export function TabManagement() {
   const loadTabs = async () => {
     try {
       setLoading(true);
-      const data = await tabService.getActiveTabs();
-      setTabs(data);
+      const tabsData = await tabService.getTabs();
+      setTabs(tabsData);
+      
+      // Show a friendly message if no tabs exist yet
+      if (tabsData.length === 0) {
+        toast.info('No tabs found. Create your first tab to get started!');
+      }
     } catch (error) {
-      toast.error('Failed to load tabs');
+      console.error('Failed to load tabs:', error);
+      toast.error('Failed to load tabs. Please try again.');
+      setTabs([]); // Ensure we set empty array on error
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateTab = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Field management functions
+  const addField = () => {
+    if (!newField.fieldKey || !newField.fieldName || !newField.displayName) {
+      toast.error('Please fill in all required field information');
+      return;
+    }
+
+    const field: FieldConfig = {
+      id: `field_${Date.now()}`,
+      fieldKey: newField.fieldKey,
+      fieldName: newField.fieldName,
+      displayName: newField.displayName,
+      fieldType: newField.fieldType || 'Text',
+      isRequired: newField.isRequired || false,
+      validationRules: newField.validationRules,
+      defaultValue: newField.defaultValue,
+      order: fields.length
+    };
+
+    setFields([...fields, field]);
+    setNewField({
+      fieldKey: '',
+      fieldName: '',
+      displayName: '',
+      fieldType: 'Text',
+      isRequired: false,
+      order: fields.length + 1
+    });
+  };
+
+  const removeField = (fieldId: string) => {
+    setFields(fields.filter(f => f.id !== fieldId));
+  };
+
+  const updateFieldOrder = (fieldId: string, newOrder: number) => {
+    setFields(fields.map(f => 
+      f.id === fieldId ? { ...f, order: newOrder } : f
+    ));
+  };
+
+  const handleCreateTab = async () => {
+    console.log('🚀 [TAB-CREATE] Starting tab creation process');
+    console.log('🔍 [TAB-CREATE] Authentication status:', isAuthenticated);
+    console.log('📋 [TAB-CREATE] Form data:', formData);
+    console.log('📊 [TAB-CREATE] Fields:', fields);
     
-    if (isSubmitting) return; // Prevent multiple submissions
+    if (isSubmitting) {
+      console.log('⏳ [TAB-CREATE] Already submitting, skipping');
+      return;
+    }
     
-    if (!formData.name || !formData.description || !formData.letterType) {
+    if (!isAuthenticated) {
+      console.log('❌ [TAB-CREATE] User not authenticated');
+      toast.error('Please login first to create tabs');
+      return;
+    }
+    
+    if (!formData.typeKey || !formData.displayName) {
+      console.log('❌ [TAB-CREATE] Missing required fields');
       toast.error('Please fill in all required fields');
       return;
     }
     
     try {
+      console.log('🔄 [TAB-CREATE] Setting submitting state to true');
       setIsSubmitting(true);
       
-      // Create metadata object with data source type configuration
-      const metadata = {
-        dataSourceType: dataSource, // Store the type of data source this tab will use
-        templateConfig: {
-          requiredFields: ['employeeName', 'employeeId']
-        },
-        emailConfig: {
-          defaultSubject: `${formData.name} - {{employeeName}}`,
-          allowAttachments: true
-        }
+      // Create field configuration JSON
+      console.log('🔧 [TAB-CREATE] Creating field configuration...');
+      const fieldConfiguration = {
+        fields: fields.map(field => ({
+          fieldKey: field.fieldKey,
+          fieldName: field.fieldName,
+          displayName: field.displayName,
+          fieldType: 'Text', // Always Text type for simplicity
+          isRequired: field.isRequired,
+          validationRules: field.validationRules,
+          defaultValue: field.defaultValue,
+          order: field.order
+        }))
       };
+      console.log('✅ [TAB-CREATE] Field configuration created:', fieldConfiguration);
 
-      const newTab = await tabService.createTab({
-        name: formData.name,
+      // Create the letter type definition
+      console.log('📝 [TAB-CREATE] Creating letter type data...');
+      const letterTypeData = {
+        typeKey: formData.typeKey,
+        displayName: formData.displayName,
         description: formData.description,
-        letterType: formData.letterType.toLowerCase().replace(/\s+/g, '_'),
-        isActive: formData.isActive,
-        metadata
-      });
+        dataSourceType: dataSource,
+        fieldConfiguration: JSON.stringify(fieldConfiguration),
+        isActive: formData.isActive
+      };
+      console.log('✅ [TAB-CREATE] Letter type data created:', letterTypeData);
+
+      // Call the actual API to create letter type
+      console.log('🔄 [TAB-CREATE] Calling API service...');
+      const response = await apiService.createLetterTypeDefinition(letterTypeData);
+      console.log('📊 [TAB-CREATE] API response received:', response);
       
-      setTabs([...tabs, newTab]);
-      setShowCreateDialog(false);
-      resetForm();
-      toast.success('Tab created successfully');
+      if (response.success && response.data) {
+        console.log('✅ [TAB-CREATE] API call successful, creating tab UI representation...');
+        // Create a tab representation for the UI
+        const newTab: DynamicTab = {
+          id: response.data.id,
+          name: response.data.displayName,
+          description: response.data.description || '',
+          letterType: response.data.typeKey,
+          isActive: response.data.isActive,
+          createdAt: new Date(response.data.createdAt),
+          updatedAt: new Date(response.data.updatedAt),
+          metadata: JSON.stringify({
+            dataSourceType: dataSource,
+            fieldConfiguration: fieldConfiguration
+          })
+        };
+        console.log('✅ [TAB-CREATE] Tab UI representation created:', newTab);
+        
+        console.log('🔄 [TAB-CREATE] Updating tabs state...');
+        setTabs([...tabs, newTab]);
+        setShowCreateDialog(false);
+        resetForm();
+        console.log('🎉 [TAB-CREATE] Tab created successfully!');
+        toast.success('Tab created successfully');
+      } else {
+        console.log('❌ [TAB-CREATE] API call failed:', response.error);
+        throw new Error(response.error?.message || 'Failed to create letter type');
+      }
     } catch (error: any) {
-      console.error('Failed to create tab:', error);
-      toast.error(error.message || 'Failed to create tab');
+      console.error('❌ [TAB-CREATE] Error in tab creation:', error);
+      if (error.message?.includes('Authentication required') || error.message?.includes('401')) {
+        console.log('🔐 [TAB-CREATE] Authentication error detected');
+        toast.error('Please login first to create tabs');
+      } else {
+        console.log('💥 [TAB-CREATE] Other error:', error.message);
+        toast.error(error.message || 'Failed to create tab');
+      }
     } finally {
+      console.log('🔄 [TAB-CREATE] Setting submitting state to false');
       setIsSubmitting(false);
     }
+  };
+
+  const nextStep = () => {
+    if (currentStep === 1) {
+      if (!formData.typeKey || !formData.displayName) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+    }
+    setCurrentStep(currentStep + 1);
+  };
+
+  const prevStep = () => {
+    setCurrentStep(currentStep - 1);
   };
 
 
@@ -109,9 +261,14 @@ export function TabManagement() {
       `Are you sure you want to delete tab "${tab.name}"?`,
       async () => {
         try {
-          await tabService.deleteTab(tabId);
-          setTabs(tabs.filter(tab => tab.id !== tabId));
-          notify.success('Tab deleted successfully');
+          const response = await apiService.deleteLetterTypeDefinition(tabId);
+          
+          if (response.success) {
+            setTabs(tabs.filter(tab => tab.id !== tabId));
+            notify.success('Tab deleted successfully');
+          } else {
+            throw new Error(response.error?.message || 'Failed to delete letter type');
+          }
         } catch (error) {
           handleError(error, 'Delete tab');
         }
@@ -122,11 +279,13 @@ export function TabManagement() {
   const handleEditTab = (tab: DynamicTab) => {
     setEditingTab(tab);
     setFormData({
-      name: tab.name,
+      typeKey: tab.letterType,
+      displayName: tab.name,
       description: tab.description,
-      letterType: tab.letterType,
-      isActive: tab.isActive
+      isActive: tab.isActive,
+      module: 'ER'
     });
+    setCurrentStep(1);
     setShowCreateDialog(true);
   };
 
@@ -208,31 +367,60 @@ export function TabManagement() {
     }
   };
 
-  const handleUpdateTab = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleUpdateTab = async () => {
     if (!editingTab) return;
     
-    if (!formData.name || !formData.description || !formData.letterType) {
+    if (!formData.typeKey || !formData.displayName) {
       notify.error('Please fill in all required fields');
       return;
     }
     
     try {
-      const updatedTab: DynamicTab = {
-        ...editingTab,
-        name: formData.name,
+      // Create field configuration JSON
+      const fieldConfiguration = {
+        fields: fields.map(field => ({
+          fieldKey: field.fieldKey,
+          fieldName: field.fieldName,
+          displayName: field.displayName,
+          fieldType: 'Text', // Always Text type for simplicity
+          isRequired: field.isRequired,
+          validationRules: field.validationRules,
+          defaultValue: field.defaultValue,
+          order: field.order
+        }))
+      };
+
+      const updateData = {
+        typeKey: formData.typeKey,
+        displayName: formData.displayName,
         description: formData.description,
-        letterType: formData.letterType,
+        dataSourceType: dataSource,
+        fieldConfiguration: JSON.stringify(fieldConfiguration),
         isActive: formData.isActive
       };
       
-      await tabService.updateTab(editingTab.id, updatedTab);
-      setTabs(tabs.map(tab => tab.id === editingTab.id ? updatedTab : tab));
-      setShowCreateDialog(false);
-      setEditingTab(null);
-      setFormData({ name: '', description: '', letterType: '', isActive: true });
-      notify.success('Tab updated successfully');
+      const response = await apiService.updateLetterTypeDefinition(editingTab.id, updateData);
+      
+      if (response.success && response.data) {
+        const updatedTab: DynamicTab = {
+          id: response.data.id,
+          name: response.data.displayName,
+          description: response.data.description || '',
+          letterType: response.data.typeKey,
+          isActive: response.data.isActive,
+          createdAt: new Date(response.data.createdAt),
+          updatedAt: new Date(response.data.updatedAt),
+          metadata: response.data.fieldConfiguration || '{}'
+        };
+        
+        setTabs(tabs.map(tab => tab.id === editingTab.id ? updatedTab : tab));
+        setShowCreateDialog(false);
+        setEditingTab(null);
+        resetForm();
+        notify.success('Tab updated successfully');
+      } else {
+        throw new Error(response.error?.message || 'Failed to update letter type');
+      }
     } catch (error) {
       handleError(error, 'Update tab');
     }
@@ -240,12 +428,23 @@ export function TabManagement() {
 
   const resetForm = () => {
     setFormData({
-      name: '',
+      typeKey: '',
+      displayName: '',
       description: '',
-      letterType: '',
-      isActive: true
+      isActive: true,
+      module: 'ER'
     });
-    setDataSource('database');
+    setDataSource('Database');
+    setFields([]);
+    setNewField({
+      fieldKey: '',
+      fieldName: '',
+      displayName: '',
+      fieldType: 'Text',
+      isRequired: false,
+      order: 0
+    });
+    setCurrentStep(1);
   };
 
 
@@ -374,150 +573,318 @@ export function TabManagement() {
                 Create Tab
               </Button>
             </DialogTrigger>
-          <DialogContent className="dialog-panel max-w-md max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingTab ? 'Edit Tab' : 'Create New Tab'}</DialogTitle>
-              <DialogDescription>
-                {editingTab ? 'Update the tab configuration' : 'Add a new letter type tab to the system'}
-              </DialogDescription>
-            </DialogHeader>
-            
-            <form onSubmit={editingTab ? handleUpdateTab : handleCreateTab} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Tab Name</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Promotion Letter"
-                  required
-                />
-              </div>
+            <DialogContent className="dialog-panel max-w-4xl max-h-[70vh] overflow-hidden">
+              <DialogHeader>
+                <DialogTitle className="flex items-center justify-between">
+                  <span>{editingTab ? 'Edit Tab' : 'Create New Tab'}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCreateDialog(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </DialogTitle>
+                <DialogDescription>
+                  {editingTab ? 'Update the tab configuration' : 'Create a new letter type tab with custom fields'}
+                </DialogDescription>
+              </DialogHeader>
               
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of this letter type"
-                  rows={3}
-                  required
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="letterType">Letter Type ID</Label>
-                <Input
-                  id="letterType"
-                  value={formData.letterType}
-                  onChange={(e) => setFormData({ ...formData, letterType: e.target.value })}
-                  placeholder="e.g., promotion_letter"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Used internally for identification (will be auto-formatted)
-                </p>
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="isActive"
-                  checked={formData.isActive}
-                  onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
-                />
-                <Label htmlFor="isActive">Active</Label>
+              {/* Step Indicator */}
+              <div className="flex items-center justify-center space-x-4 py-4">
+                {[1, 2, 3].map((step) => (
+                  <div key={step} className="flex items-center">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      currentStep >= step 
+                        ? 'bg-neon-blue text-white' 
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {currentStep > step ? <Check className="h-4 w-4" /> : step}
+                    </div>
+                    {step < 3 && (
+                      <div className={`w-16 h-0.5 mx-2 ${
+                        currentStep > step ? 'bg-neon-blue' : 'bg-muted'
+                      }`} />
+                    )}
+                  </div>
+                ))}
               </div>
 
-              {/* Data Source Type Selection */}
-              <div className="space-y-4 border-t pt-4">
-                <div className="space-y-2">
-                  <Label>Data Source Type</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Choose how this tab will receive its data
-                  </p>
-                  <div className="flex space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="database-source"
-                        name="dataSource"
-                        value="database"
-                        checked={dataSource === 'database'}
-                        onChange={(e) => setDataSource(e.target.value as 'database' | 'excel')}
-                        className="w-4 h-4"
-                      />
-                      <Label htmlFor="database-source" className="flex items-center gap-2">
-                        <Database className="h-4 w-4" />
-                        Database Connection
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="excel-source"
-                        name="dataSource"
-                        value="excel"
-                        checked={dataSource === 'excel'}
-                        onChange={(e) => setDataSource(e.target.value as 'database' | 'excel')}
-                        className="w-4 h-4"
-                      />
-                      <Label htmlFor="excel-source" className="flex items-center gap-2">
-                        <Upload className="h-4 w-4" />
-                        Excel Upload
-                      </Label>
+              <div className="flex-1 overflow-y-auto">
+                {/* Step 1: Basic Information */}
+                {currentStep === 1 && (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold">Basic Information</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="typeKey">Type Key *</Label>
+                          <Input
+                            id="typeKey"
+                            value={formData.typeKey}
+                            onChange={(e) => setFormData({ ...formData, typeKey: e.target.value })}
+                            placeholder="e.g., promotion_letter"
+                            required
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Unique identifier for this letter type
+                          </p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="displayName">Display Name *</Label>
+                          <Input
+                            id="displayName"
+                            value={formData.displayName}
+                            onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                            placeholder="e.g., Promotion Letter"
+                            required
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea
+                          id="description"
+                          value={formData.description}
+                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                          placeholder="Brief description of this letter type"
+                          rows={3}
+                        />
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="isActive"
+                          checked={formData.isActive}
+                          onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
+                        />
+                        <Label htmlFor="isActive">Active</Label>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div className="p-4 bg-muted/50 rounded-lg">
-                  {dataSource === 'database' ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <Database className="h-4 w-4 text-blue-500" />
-                        <span className="font-medium">Database Connection Tab</span>
-                      </div>
+                {/* Step 2: Data Source Selection */}
+                {currentStep === 2 && (
+                  <div className="space-y-6">
+                    <h3 className="text-lg font-semibold">Data Source Configuration</h3>
+                    <div className="space-y-4">
+                      <Label>Choose Data Source Type</Label>
                       <p className="text-sm text-muted-foreground">
-                        This tab will allow users to connect to an external database and configure queries to fetch data.
+                        Select how this tab will receive its data
                       </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <Upload className="h-4 w-4 text-green-500" />
-                        <span className="font-medium">Excel Upload Tab</span>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Card 
+                          className={`cursor-pointer transition-all ${
+                            dataSource === 'Database' 
+                              ? 'ring-2 ring-neon-blue bg-neon-blue/10' 
+                              : 'hover:bg-muted/50'
+                          }`}
+                          onClick={() => setDataSource('Database')}
+                        >
+                          <CardContent className="p-6">
+                            <div className="flex items-center space-x-3">
+                              <Database className="h-8 w-8 text-blue-500" />
+                              <div>
+                                <h4 className="font-semibold">Database Connection</h4>
+                                <p className="text-sm text-muted-foreground">
+                                  Connect to external database
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card 
+                          className={`cursor-pointer transition-all ${
+                            dataSource === 'Excel' 
+                              ? 'ring-2 ring-neon-blue bg-neon-blue/10' 
+                              : 'hover:bg-muted/50'
+                          }`}
+                          onClick={() => setDataSource('Excel')}
+                        >
+                          <CardContent className="p-6">
+                            <div className="flex items-center space-x-3">
+                              <Upload className="h-8 w-8 text-green-500" />
+                              <div>
+                                <h4 className="font-semibold">Excel Upload</h4>
+                                <p className="text-sm text-muted-foreground">
+                                  Upload and work with Excel files
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        This tab will allow users to upload Excel files and work with the data directly.
-                      </p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {/* Step 3: Field Configuration */}
+                {currentStep === 3 && (
+                  <div className="space-y-6">
+                    <h3 className="text-lg font-semibold">Field Configuration</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Define the fields that will be available in this letter type
+                    </p>
+                    
+                    {/* Add New Field Form */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Add New Field</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="fieldKey">Field Key *</Label>
+                            <Input
+                              id="fieldKey"
+                              value={newField.fieldKey || ''}
+                              onChange={(e) => setNewField({ ...newField, fieldKey: e.target.value })}
+                              placeholder="e.g., employee_name"
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="fieldName">Field Name *</Label>
+                            <Input
+                              id="fieldName"
+                              value={newField.fieldName || ''}
+                              onChange={(e) => setNewField({ ...newField, fieldName: e.target.value })}
+                              placeholder="e.g., EmployeeName"
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="displayName">Display Name *</Label>
+                            <Input
+                              id="displayName"
+                              value={newField.displayName || ''}
+                              onChange={(e) => setNewField({ ...newField, displayName: e.target.value })}
+                              placeholder="e.g., Employee Name"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Field type is always Text - no selection needed */}
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="defaultValue">Default Value</Label>
+                            <Input
+                              id="defaultValue"
+                              value={newField.defaultValue || ''}
+                              onChange={(e) => setNewField({ ...newField, defaultValue: e.target.value })}
+                              placeholder="Optional default value"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4">
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="isRequired"
+                              checked={newField.isRequired || false}
+                              onCheckedChange={(checked) => setNewField({ ...newField, isRequired: checked })}
+                            />
+                            <Label htmlFor="isRequired">Required Field</Label>
+                          </div>
+                          
+                          <Button onClick={addField} className="neon-glow">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Field
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    
+                    {/* Fields List */}
+                    {fields.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Configured Fields ({fields.length})</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {fields.map((field, index) => (
+                              <div key={field.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                                <div className="flex items-center space-x-4">
+                                  <div className="w-6 h-6 bg-neon-blue/20 rounded-full flex items-center justify-center text-xs font-medium">
+                                    {index + 1}
+                                  </div>
+                                  <div>
+                                    <div className="font-medium">{field.displayName}</div>
+                                    <div className="text-sm text-muted-foreground">
+                                      {field.fieldKey}
+                                      {field.isRequired && ' • Required'}
+                                    </div>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeField(field.id)}
+                                  className="text-red-400 hover:text-red-300"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                )}
               </div>
               
-              <div className="flex gap-3 pt-4">
-                <Button type="submit" className="flex-1" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Loading className="h-4 w-4 mr-2" />
-                      {editingTab ? 'Updating...' : 'Creating...'}
-                    </>
-                  ) : (
-                    editingTab ? 'Update Tab' : 'Create Tab'
+              {/* Navigation Buttons */}
+              <div className="flex justify-between pt-6 border-t">
+                <div>
+                  {currentStep > 1 && (
+                    <Button variant="outline" onClick={prevStep}>
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Previous
+                    </Button>
                   )}
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setShowCreateDialog(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
+                </div>
+                
+                <div className="flex space-x-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowCreateDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                  
+                  {currentStep < 3 ? (
+                    <Button onClick={nextStep}>
+                      Next
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={editingTab ? handleUpdateTab : handleCreateTab}
+                      disabled={isSubmitting}
+                      className="neon-glow"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loading className="h-4 w-4 mr-2" />
+                          {editingTab ? 'Updating...' : 'Creating...'}
+                        </>
+                      ) : (
+                        editingTab ? 'Update Tab' : 'Create Tab'
+                      )}
+                    </Button>
+                  )}
+                </div>
               </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -697,7 +1064,7 @@ export function TabManagement() {
 
       {/* Data Table Dialog */}
       <Dialog open={showDataDialog} onOpenChange={setShowDataDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-hidden">
+        <DialogContent className="max-w-6xl max-h-[70vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Table className="h-5 w-5" />
