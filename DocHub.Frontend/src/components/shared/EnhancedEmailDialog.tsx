@@ -22,6 +22,8 @@ interface EnhancedEmailDialogProps {
   employees: Employee[];
   tabId: string;
   onEmailsSent: (jobs: EmailJob[]) => void;
+  emailTemplate?: string;
+  emailTemplateSubject?: string;
 }
 
 interface EmployeeEmailData {
@@ -49,7 +51,9 @@ export function EnhancedEmailDialog({
   onOpenChange,
   employees,
   tabId,
-  onEmailsSent
+  onEmailsSent,
+  emailTemplate = '',
+  emailTemplateSubject = ''
 }: EnhancedEmailDialogProps) {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [signatures, setSignatures] = useState<Signature[]>([]);
@@ -69,7 +73,7 @@ export function EnhancedEmailDialog({
       loadTemplatesAndSignatures();
       initializeEmailData();
     }
-  }, [open, employees]);
+  }, [open, employees, emailTemplate, emailTemplateSubject]);
 
   const loadTemplatesAndSignatures = async () => {
     try {
@@ -86,17 +90,45 @@ export function EnhancedEmailDialog({
   };
 
   const initializeEmailData = () => {
-    const data = employees.map(employee => ({
-      employee,
-      subject: `Document Request - ${employee.name}`,
-      content: `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`,
-      cc: '',
-      attachments: [],
-      selectedTemplate: null,
-      selectedSignature: null,
-      generatedPdfUrl: undefined,
-      isGeneratingPdf: false
-    }));
+    const data = employees.map(employee => {
+      // Replace placeholders in email template
+      let content = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
+      let subject = emailTemplateSubject || `Document Request - ${employee.name}`;
+      
+      if (emailTemplate) {
+        content = emailTemplate
+          .replace(/\{employeeName\}/g, employee.name || 'Employee')
+          .replace(/\{employeeEmail\}/g, employee.email || '')
+          .replace(/\{employeeId\}/g, employee.employeeId || '')
+          .replace(/\{department\}/g, employee.department || '')
+          .replace(/\{designation\}/g, employee.designation || '')
+          .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+          .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+      }
+
+      if (emailTemplateSubject) {
+        subject = emailTemplateSubject
+          .replace(/\{employeeName\}/g, employee.name || 'Employee')
+          .replace(/\{employeeEmail\}/g, employee.email || '')
+          .replace(/\{employeeId\}/g, employee.employeeId || '')
+          .replace(/\{department\}/g, employee.department || '')
+          .replace(/\{designation\}/g, employee.designation || '')
+          .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+          .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+      }
+
+      return {
+        employee,
+        subject,
+        content,
+        cc: '',
+        attachments: [],
+        selectedTemplate: null,
+        selectedSignature: null,
+        generatedPdfUrl: undefined,
+        isGeneratingPdf: false
+      };
+    });
     setEmailData(data);
   };
 

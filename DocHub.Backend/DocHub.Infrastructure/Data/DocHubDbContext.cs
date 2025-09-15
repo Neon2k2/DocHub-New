@@ -21,6 +21,7 @@ public class DocHubDbContext : DbContext, IDbContext
     public DbSet<ExcelUpload> ExcelUploads => Set<ExcelUpload>();
     public DbSet<GeneratedDocument> GeneratedDocuments => Set<GeneratedDocument>();
     public DbSet<EmailJob> EmailJobs => Set<EmailJob>();
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
     public DbSet<TableSchema> TableSchemas => Set<TableSchema>();
@@ -292,6 +293,19 @@ public class DocHubDbContext : DbContext, IDbContext
                 .OnDelete(DeleteBehavior.Cascade);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
             entity.HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
+        });
+
+        // Configure EmailTemplate entity
+        modelBuilder.Entity<EmailTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.LetterTypeDefinition)
+                .WithMany()
+                .HasForeignKey(e => e.LetterTypeDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => e.LetterTypeDefinitionId).IsUnique();
         });
 
     }

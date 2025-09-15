@@ -16,6 +16,7 @@ public interface IDbContext
     DbSet<ExcelUpload> ExcelUploads { get; }
     DbSet<GeneratedDocument> GeneratedDocuments { get; }
     DbSet<EmailJob> EmailJobs { get; }
+    DbSet<EmailTemplate> EmailTemplates { get; }
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<WebhookEvent> WebhookEvents { get; }
     DbSet<TableSchema> TableSchemas { get; }

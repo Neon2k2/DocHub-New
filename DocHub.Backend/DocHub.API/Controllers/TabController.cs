@@ -1469,6 +1469,132 @@ public class TabController : ControllerBase
         }
         return null;
     }
+
+    // Email Template Management Endpoints
+
+    [HttpGet("{tabId}/email-template")]
+    public async Task<ActionResult<ApiResponse<EmailTemplateDto>>> GetEmailTemplate(string tabId)
+    {
+        try
+        {
+            if (!Guid.TryParse(tabId, out var tabIdGuid))
+            {
+                return BadRequest(ApiResponse<EmailTemplateDto>.ErrorResult("Invalid tab ID format"));
+            }
+
+            var emailTemplate = await _dbContext.EmailTemplates
+                .FirstOrDefaultAsync(et => et.LetterTypeDefinitionId == tabIdGuid);
+
+            if (emailTemplate == null)
+            {
+                return Ok(ApiResponse<EmailTemplateDto>.SuccessResult(new EmailTemplateDto
+                {
+                    Id = Guid.Empty,
+                    LetterTypeDefinitionId = tabIdGuid,
+                    Subject = "",
+                    Content = "",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = Guid.Empty
+                }));
+            }
+
+            var dto = new EmailTemplateDto
+            {
+                Id = emailTemplate.Id,
+                LetterTypeDefinitionId = emailTemplate.LetterTypeDefinitionId,
+                Subject = emailTemplate.Subject,
+                Content = emailTemplate.Content,
+                CreatedAt = emailTemplate.CreatedAt,
+                UpdatedAt = emailTemplate.UpdatedAt,
+                CreatedBy = emailTemplate.CreatedBy
+            };
+
+            return Ok(ApiResponse<EmailTemplateDto>.SuccessResult(dto));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email template for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<EmailTemplateDto>.ErrorResult("An error occurred while getting email template"));
+        }
+    }
+
+    [HttpPost("{tabId}/email-template")]
+    public async Task<ActionResult<ApiResponse<EmailTemplateDto>>> SaveEmailTemplate(string tabId, [FromBody] SaveEmailTemplateRequest request)
+    {
+        try
+        {
+            if (!Guid.TryParse(tabId, out var tabIdGuid))
+            {
+                return BadRequest(ApiResponse<EmailTemplateDto>.ErrorResult("Invalid tab ID format"));
+            }
+
+            var userId = GetCurrentUserId();
+            var userIdGuid = Guid.Parse(userId);
+
+            var existingTemplate = await _dbContext.EmailTemplates
+                .FirstOrDefaultAsync(et => et.LetterTypeDefinitionId == tabIdGuid);
+
+            if (existingTemplate != null)
+            {
+                // Update existing template
+                existingTemplate.Subject = request.Subject;
+                existingTemplate.Content = request.Content;
+                existingTemplate.UpdatedAt = DateTime.UtcNow;
+                
+                _dbContext.EmailTemplates.Update(existingTemplate);
+                await _dbContext.SaveChangesAsync();
+
+                var dto = new EmailTemplateDto
+                {
+                    Id = existingTemplate.Id,
+                    LetterTypeDefinitionId = existingTemplate.LetterTypeDefinitionId,
+                    Subject = existingTemplate.Subject,
+                    Content = existingTemplate.Content,
+                    CreatedAt = existingTemplate.CreatedAt,
+                    UpdatedAt = existingTemplate.UpdatedAt,
+                    CreatedBy = existingTemplate.CreatedBy
+                };
+
+                return Ok(ApiResponse<EmailTemplateDto>.SuccessResult(dto));
+            }
+            else
+            {
+                // Create new template
+                var newTemplate = new EmailTemplate
+                {
+                    Id = Guid.NewGuid(),
+                    LetterTypeDefinitionId = tabIdGuid,
+                    Subject = request.Subject,
+                    Content = request.Content,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = userIdGuid
+                };
+
+                _dbContext.EmailTemplates.Add(newTemplate);
+                await _dbContext.SaveChangesAsync();
+
+                var dto = new EmailTemplateDto
+                {
+                    Id = newTemplate.Id,
+                    LetterTypeDefinitionId = newTemplate.LetterTypeDefinitionId,
+                    Subject = newTemplate.Subject,
+                    Content = newTemplate.Content,
+                    CreatedAt = newTemplate.CreatedAt,
+                    UpdatedAt = newTemplate.UpdatedAt,
+                    CreatedBy = newTemplate.CreatedBy
+                };
+
+                return Ok(ApiResponse<EmailTemplateDto>.SuccessResult(dto));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving email template for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<EmailTemplateDto>.ErrorResult("An error occurred while saving email template"));
+        }
+    }
 }
 
 public class GenerateLettersRequest
@@ -1554,6 +1680,39 @@ public class EmailAttachmentRequest
     
     [JsonPropertyName("mimeType")]
     public string MimeType { get; set; } = string.Empty;
+    
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = string.Empty;
+}
+
+public class EmailTemplateDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+    
+    [JsonPropertyName("letterTypeDefinitionId")]
+    public Guid LetterTypeDefinitionId { get; set; }
+    
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
+    
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = string.Empty;
+    
+    [JsonPropertyName("createdAt")]
+    public DateTime CreatedAt { get; set; }
+    
+    [JsonPropertyName("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
+    
+    [JsonPropertyName("createdBy")]
+    public Guid CreatedBy { get; set; }
+}
+
+public class SaveEmailTemplateRequest
+{
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
     
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;

@@ -74,6 +74,11 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   
+  // Email template state
+  const [emailTemplate, setEmailTemplate] = useState<string>('');
+  const [emailTemplateSubject, setEmailTemplateSubject] = useState<string>('');
+  const [showEmailTemplateDialog, setShowEmailTemplateDialog] = useState<boolean>(false);
+  
   // Fetch tab data for this tab
   const { data: tabData, loading: dataLoading, totalCount } = useTabData(tab.id);
   
@@ -353,10 +358,41 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     }
   };
 
+  const loadEmailTemplate = async () => {
+    try {
+      const response = await apiService.getEmailTemplate(tab.id);
+      if (response.success && response.data) {
+        setEmailTemplate(response.data.content);
+        setEmailTemplateSubject(response.data.subject);
+      }
+    } catch (error) {
+      console.error('Error loading email template:', error);
+    }
+  };
+
+  const saveEmailTemplate = async () => {
+    try {
+      const response = await apiService.saveEmailTemplate(tab.id, {
+        subject: emailTemplateSubject,
+        content: emailTemplate
+      });
+      if (response.success) {
+        toast.success('Email template saved successfully');
+        setShowEmailTemplateDialog(false);
+      } else {
+        toast.error('Failed to save email template');
+      }
+    } catch (error) {
+      console.error('Error saving email template:', error);
+      toast.error('Failed to save email template');
+    }
+  };
+
   useEffect(() => {
     console.log('DynamicLetterTab received tab:', tab);
     loadData();
     loadStatistics();
+    loadEmailTemplate();
   }, [tab.id]);
 
   const loadData = async () => {
@@ -775,6 +811,15 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                 <p className="text-sm text-gray-600 dark:text-gray-400">Choose employees to generate letters for</p>
               </div>
               <div className="flex items-center gap-3">
+                <Button
+                  onClick={() => setShowEmailTemplateDialog(true)}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Set Email Template
+                </Button>
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300" style={{ color: '#374151' }}>
                   {isEditMode ? 'View Mode' : 'Edit Mode'}
                 </span>
@@ -1113,6 +1158,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           onOpenChange={setShowEnhancedEmailDialog}
           employees={selectedEmployees || []}
           tabId={tab.id}
+          emailTemplate={emailTemplate}
+          emailTemplateSubject={emailTemplateSubject}
           onEmailsSent={(jobs) => {
             setEmailJobs(jobs);
             toast.success(`Successfully sent ${jobs.length} emails`);
@@ -1152,6 +1199,69 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Email Template Dialog */}
+      <Dialog open={showEmailTemplateDialog} onOpenChange={setShowEmailTemplateDialog}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-blue-500" />
+              Set Email Template for {tab.name}
+            </DialogTitle>
+            <DialogDescription>
+              Set the default email content that will be prefilled for all employees in this tab. You can use placeholders like {`{employeeName}`}, {`{employeeEmail}`}, etc.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="email-template-subject" className="text-sm font-medium">
+                Email Subject Template
+              </Label>
+              <Input
+                id="email-template-subject"
+                value={emailTemplateSubject}
+                onChange={(e) => setEmailTemplateSubject(e.target.value)}
+                placeholder="Document Request - {employeeName}"
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="email-template" className="text-sm font-medium">
+                Email Template Content
+              </Label>
+              <Textarea
+                id="email-template"
+                rows={12}
+                value={emailTemplate}
+                onChange={(e) => setEmailTemplate(e.target.value)}
+                placeholder={`Dear {employeeName},
+
+Please find attached your requested document.
+
+Best regards,
+HR Department`}
+                className="mt-2 resize-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Available placeholders: {`{employeeName}`}, {`{employeeEmail}`}, {`{employeeId}`}, {`{department}`}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowEmailTemplateDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={saveEmailTemplate}
+              >
+                Save Template
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

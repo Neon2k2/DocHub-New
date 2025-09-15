@@ -1117,6 +1117,18 @@ class ApiService {
     return this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
   }
 
+  // Email Template Management
+  async getEmailTemplate(tabId: string): Promise<ApiResponse<EmailTemplate>> {
+    return this.request<ApiResponse<EmailTemplate>>(`/Tab/${tabId}/email-template`);
+  }
+
+  async saveEmailTemplate(tabId: string, template: SaveEmailTemplateRequest): Promise<ApiResponse<EmailTemplate>> {
+    return this.request<ApiResponse<EmailTemplate>>(`/Tab/${tabId}/email-template`, {
+      method: 'POST',
+      body: JSON.stringify(template),
+    });
+  }
+
   // Tab Data APIs (replacing document requests with tab data)
   async getTabData(tabId: string, params: {
     page?: number;
@@ -2678,6 +2690,21 @@ export interface PasswordExpiryInfo {
   isExpired: boolean;
   daysUntilExpiry: number;
   lastChanged: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  letterTypeDefinitionId: string;
+  subject: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+export interface SaveEmailTemplateRequest {
+  subject: string;
+  content: string;
 }
 
 // Export singleton instance
