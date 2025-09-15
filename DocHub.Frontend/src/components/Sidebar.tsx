@@ -39,6 +39,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
     const CACHE_DURATION = 30000; // 30 seconds cache
     let requestInProgress = false;
 
+    console.log('🔍 [SIDEBAR] Current user object:', currentUser);
+
     const loadDynamicTabs = async () => {
       // Prevent multiple simultaneous requests
       if (requestInProgress) {
@@ -56,9 +58,13 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
       try {
         // Filter tabs by user's department
         const userDepartment = currentUser.department || 'ER';
+        console.log('🔍 [SIDEBAR] Loading tabs for department:', userDepartment);
         const tabs = await tabService.getTabsByDepartment(userDepartment);
+        console.log('📊 [SIDEBAR] Raw tabs received:', tabs);
+        const activeTabs = tabs.filter(tab => tab.isActive);
+        console.log('✅ [SIDEBAR] Active tabs after filtering:', activeTabs);
         if (isMounted) {
-          setDynamicTabs(tabs.filter(tab => tab.isActive));
+          setDynamicTabs(activeTabs);
           lastFetchTime = now;
         }
       } catch (error) {

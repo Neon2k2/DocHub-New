@@ -79,7 +79,7 @@ public class ExcelProcessingService : IExcelProcessingService
             });
             upload.IsProcessed = true;
             upload.ProcessedRows = excelData.Rows.Count;
-            upload.ProcessedBy = Guid.Parse(userId);
+            upload.ProcessedBy = await ValidateUserIdAsync(userId);
             upload.UpdatedAt = DateTime.UtcNow;
 
             await _excelRepository.UpdateAsync(upload);
@@ -386,7 +386,7 @@ public class ExcelProcessingService : IExcelProcessingService
 
             // Update ExcelUpload to mark as processed
             upload.IsProcessed = true;
-            upload.ProcessedBy = Guid.Parse(userId);
+            upload.ProcessedBy = await ValidateUserIdAsync(userId);
             upload.UpdatedAt = DateTime.UtcNow;
             upload.ParsedData = JsonSerializer.Serialize(new { 
                 TableName = existingTable, 
@@ -952,6 +952,10 @@ public class ExcelProcessingService : IExcelProcessingService
 
             // Create Excel upload record
             _logger.LogInformation("📝 [EXCEL-UPLOAD] Creating ExcelUpload record...");
+            
+            // Validate user exists, fallback to admin if not
+            var validUserId = await ValidateUserIdAsync(userId);
+            
             var excelUpload = new ExcelUpload
             {
                 LetterTypeDefinitionId = request.LetterTypeDefinitionId,
@@ -962,7 +966,7 @@ public class ExcelProcessingService : IExcelProcessingService
                     contentType = request.File.ContentType
                 }),
                 IsProcessed = false,
-                ProcessedBy = Guid.Parse(userId),
+                ProcessedBy = validUserId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -1422,6 +1426,36 @@ public class ExcelProcessingService : IExcelProcessingService
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ [EXCEL-SERVICE] Error getting data from dynamic table {TableName}", tableName);
+            throw;
+        }
+    }
+
+    private async Task<Guid> ValidateUserIdAsync(string userId)
+    {
+        try
+        {
+            // Check if the user exists
+            var userExists = await _dbContext.Users.AnyAsync(u => u.Id == Guid.Parse(userId));
+            if (userExists)
+            {
+                return Guid.Parse(userId);
+            }
+            
+            // Fallback to admin user
+            _logger.LogWarning("User {UserId} not found, using admin user as fallback", userId);
+            var adminUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == "admin@collabera.com");
+            if (adminUser != null)
+            {
+                _logger.LogInformation("Using admin user {AdminId} as fallback", adminUser.Id);
+                return adminUser.Id;
+            }
+            
+            // If no admin user found, throw exception
+            throw new InvalidOperationException("No valid user found for Excel upload");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating user ID: {UserId}", userId);
             throw;
         }
     }

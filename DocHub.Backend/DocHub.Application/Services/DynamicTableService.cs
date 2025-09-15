@@ -24,6 +24,18 @@ namespace DocHub.Application.Services
             _logger = logger;
         }
 
+        private string GetConnectionString()
+        {
+            var connectionString = ((Microsoft.EntityFrameworkCore.DbContext)_dbContext).Database.GetConnectionString();
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                _logger.LogError("❌ [DYNAMIC-TABLE] Connection string is null or empty!");
+                throw new InvalidOperationException("Database connection string is not configured.");
+            }
+            _logger.LogInformation("🔗 [DYNAMIC-TABLE] Using connection string: {ConnectionString}", connectionString);
+            return connectionString;
+        }
+
         public async Task<string> CreateDynamicTableAsync(Guid letterTypeId, Guid excelUploadId, List<ColumnDefinition> columns, List<Dictionary<string, object>> data)
         {
             try
@@ -112,7 +124,7 @@ namespace DocHub.Application.Services
                 var insertSql = $"INSERT INTO [{tableName}] ({columnNames}) VALUES ({parameterNames})";
                 _logger.LogInformation("📝 [DYNAMIC-TABLE] Insert SQL: {InsertSql}", insertSql);
 
-                using var connection = new SqlConnection(((Microsoft.EntityFrameworkCore.DbContext)_dbContext).Database.GetConnectionString());
+                using var connection = new SqlConnection(GetConnectionString());
                 await connection.OpenAsync();
 
                 using var transaction = connection.BeginTransaction();
@@ -205,7 +217,7 @@ namespace DocHub.Application.Services
             {
                 var selectSql = $"SELECT * FROM [{tableName}] ORDER BY (SELECT NULL) OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY";
                 
-                using var connection = new SqlConnection(((Microsoft.EntityFrameworkCore.DbContext)_dbContext).Database.GetConnectionString());
+                using var connection = new SqlConnection(GetConnectionString());
                 await connection.OpenAsync();
 
                 using var command = new SqlCommand(selectSql, connection);
@@ -284,7 +296,7 @@ namespace DocHub.Application.Services
             {
                 var checkSql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @tableName";
                 
-                using var connection = new SqlConnection(((Microsoft.EntityFrameworkCore.DbContext)_dbContext).Database.GetConnectionString());
+                using var connection = new SqlConnection(GetConnectionString());
                 await connection.OpenAsync();
 
                 using var command = new SqlCommand(checkSql, connection);
@@ -451,7 +463,7 @@ namespace DocHub.Application.Services
 
         private async Task ExecuteRawSqlAsync(string sql)
         {
-            using var connection = new SqlConnection(((Microsoft.EntityFrameworkCore.DbContext)_dbContext).Database.GetConnectionString());
+            using var connection = new SqlConnection(GetConnectionString());
             await connection.OpenAsync();
             using var command = new SqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();

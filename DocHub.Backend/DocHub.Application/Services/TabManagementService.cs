@@ -63,6 +63,7 @@ public class TabManagementService : ITabManagementService
                 DisplayName = request.DisplayName,
                 Description = request.Description,
                 DataSourceType = request.DataSourceType,
+                Department = request.Department,
                 FieldConfiguration = request.FieldConfiguration,
                 TableSchema = request.TableSchema,
                 IsActive = true

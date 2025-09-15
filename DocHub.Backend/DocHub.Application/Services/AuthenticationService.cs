@@ -408,7 +408,7 @@ public class AuthenticationService : IAuthenticationService
 
     private string GetJwtSecret()
     {
-        return _configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret not configured");
+        return _configuration["Jwt:SecretKey"] ?? throw new InvalidOperationException("JWT Secret not configured");
     }
 
     private string GetJwtIssuer()

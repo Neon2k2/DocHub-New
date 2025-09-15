@@ -171,11 +171,16 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
       case 'sent':
       case 'delivered':
       case 'opened':
+      case 'clicked':
         return <CheckCircle className="h-4 w-4 text-green-400" />;
       case 'failed':
+      case 'bounced':
+      case 'dropped':
         return <AlertCircle className="h-4 w-4 text-red-400" />;
       case 'sending':
         return <Loader2 className="h-4 w-4 animate-spin text-blue-400" />;
+      case 'unsubscribed':
+        return <Mail className="h-4 w-4 text-gray-400" />;
       default:
         return <Clock className="h-4 w-4 text-orange-400" />;
     }
@@ -188,6 +193,10 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
       sent: 'text-green-400 border-green-500/30',
       delivered: 'text-green-400 border-green-500/30',
       opened: 'text-purple-400 border-purple-500/30',
+      clicked: 'text-indigo-400 border-indigo-500/30',
+      bounced: 'text-red-400 border-red-500/30',
+      dropped: 'text-red-400 border-red-500/30',
+      unsubscribed: 'text-gray-400 border-gray-500/30',
       failed: 'text-red-400 border-red-500/30'
     };
 
@@ -230,8 +239,8 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
       total: jobs.length,
       pending: counts.pending || 0,
       sending: counts.sending || 0,
-      sent: (counts.sent || 0) + (counts.delivered || 0) + (counts.opened || 0),
-      failed: counts.failed || 0
+      sent: (counts.sent || 0) + (counts.delivered || 0) + (counts.opened || 0) + (counts.clicked || 0),
+      failed: (counts.failed || 0) + (counts.bounced || 0) + (counts.dropped || 0)
     };
   };
 
@@ -387,6 +396,10 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                     <SelectItem value="sent">Sent</SelectItem>
                     <SelectItem value="delivered">Delivered</SelectItem>
                     <SelectItem value="opened">Opened</SelectItem>
+                    <SelectItem value="clicked">Clicked</SelectItem>
+                    <SelectItem value="bounced">Bounced</SelectItem>
+                    <SelectItem value="dropped">Dropped</SelectItem>
+                    <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
                     <SelectItem value="failed">Failed</SelectItem>
                   </SelectContent>
                 </Select>
@@ -454,9 +467,10 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                       >
                         <div className="flex items-center gap-4">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            job.status === 'sent' || job.status === 'delivered' ? 'bg-green-500/20' :
-                            job.status === 'failed' ? 'bg-red-500/20' :
-                            job.status === 'sending' ? 'bg-blue-500/20' : 'bg-orange-500/20'
+                            job.status === 'sent' || job.status === 'delivered' || job.status === 'opened' || job.status === 'clicked' ? 'bg-green-500/20' :
+                            job.status === 'failed' || job.status === 'bounced' || job.status === 'dropped' ? 'bg-red-500/20' :
+                            job.status === 'sending' ? 'bg-blue-500/20' : 
+                            job.status === 'unsubscribed' ? 'bg-gray-500/20' : 'bg-orange-500/20'
                           }`}>
                             {getStatusIcon(job.status)}
                           </div>
@@ -474,7 +488,7 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                             <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
                               <span>Subject: {job.subject}</span>
                               <span>•</span>
-                              <span>Sent by: {job.sentBy}</span>
+                              <span>Sent by: {job.sentByName || job.sentBy}</span>
                               <span>•</span>
                               <span>{formatDateTime(job.createdAt)}</span>
                             </div>
@@ -528,9 +542,10 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                         className="flex items-center gap-4 p-3 glass-panel rounded-lg border-glass-border animate-pulse"
                       >
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          update.status === 'sent' || update.status === 'delivered' ? 'bg-green-500/20' :
-                          update.status === 'failed' || update.status === 'bounced' ? 'bg-red-500/20' :
-                          update.status === 'sending' ? 'bg-blue-500/20' : 'bg-orange-500/20'
+                          update.status === 'sent' || update.status === 'delivered' || update.status === 'opened' || update.status === 'clicked' ? 'bg-green-500/20' :
+                          update.status === 'failed' || update.status === 'bounced' || update.status === 'dropped' ? 'bg-red-500/20' :
+                          update.status === 'sending' ? 'bg-blue-500/20' : 
+                          update.status === 'unsubscribed' ? 'bg-gray-500/20' : 'bg-orange-500/20'
                         }`}>
                           {getStatusIcon(update.status)}
                         </div>

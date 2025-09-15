@@ -58,12 +58,17 @@ public class DocHubDbContext : DbContext, IDbContext
             entity.HasOne(e => e.User)
                 .WithMany(e => e.UserRoles)
                 .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
             entity.HasOne(e => e.Role)
                 .WithMany(e => e.UserRoles)
                 .HasForeignKey(e => e.RoleId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(e => e.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.AssignedBy)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.Property(e => e.AssignedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => new { e.UserId, e.RoleId }).IsUnique();
         });
 
 
@@ -289,24 +294,5 @@ public class DocHubDbContext : DbContext, IDbContext
             entity.HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
         });
 
-        // Update UserRole entity configuration
-        modelBuilder.Entity<UserRole>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.HasOne(e => e.User)
-                .WithMany(e => e.UserRoles)
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(e => e.Role)
-                .WithMany(e => e.UserRoles)
-                .HasForeignKey(e => e.RoleId)
-                .OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(e => e.AssignedByUser)
-                .WithMany()
-                .HasForeignKey(e => e.AssignedBy)
-                .OnDelete(DeleteBehavior.SetNull);
-            entity.Property(e => e.AssignedAt).HasDefaultValueSql("GETUTCDATE()");
-            entity.HasIndex(e => new { e.UserId, e.RoleId }).IsUnique();
-        });
     }
 }

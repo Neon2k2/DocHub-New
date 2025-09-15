@@ -27,22 +27,35 @@ export interface EmailAttachment {
 
 export interface EmailJob {
   id: string;
+  letterTypeDefinitionId: string;
+  letterTypeName: string;
+  tabDataRecordId: string;
+  documentId?: string;
+  documentName?: string;
+  subject: string;
+  content: string;
+  attachments?: string; // JSON string
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'delivered' | 'opened' | 'bounced' | 'dropped' | 'unsubscribed';
+  sentBy: string;
+  sentByName: string;
   employeeId: string;
   employeeName: string;
   employeeEmail: string;
-  documentId: string;
-  emailTemplateId?: string;
-  subject: string;
-  content: string;
-  attachments: EmailAttachment[];
-  status: 'pending' | 'sending' | 'sent' | 'failed' | 'delivered' | 'opened';
-  sentBy: string;
+  recipientEmail?: string;
+  recipientName?: string;
   createdAt: Date;
   sentAt?: Date;
   deliveredAt?: Date;
   openedAt?: Date;
-  error?: string;
+  clickedAt?: Date;
+  bouncedAt?: Date;
+  droppedAt?: Date;
+  unsubscribedAt?: Date;
+  errorMessage?: string;
   trackingId?: string;
+  sendGridMessageId?: string;
+  processedAt?: Date;
+  updatedAt: Date;
 }
 
 class DocumentService {
@@ -98,12 +111,21 @@ class DocumentService {
   // Signature Management
   async getSignatures(): Promise<Signature[]> {
     const response = await apiService.getSignatures();
-    // Backend returns Signature[] directly, not wrapped in ApiResponse
     console.log('Get signatures response:', response);
+    
+    // Handle ApiResponse format
+    if (response.success && Array.isArray(response.data)) {
+      console.log('Available signatures:', response.data.map(s => ({ id: s.id, name: s.name })));
+      return response.data;
+    }
+    
+    // Fallback: if response is already an array (backward compatibility)
     if (Array.isArray(response)) {
-      console.log('Available signatures:', response.map(s => ({ id: s.id, name: s.name })));
+      console.log('Available signatures (fallback):', response.map(s => ({ id: s.id, name: s.name })));
       return response;
     }
+    
+    console.warn('No signatures found or invalid response format:', response);
     return [];
   }
 
@@ -215,8 +237,12 @@ class DocumentService {
       if (params?.employeeId) queryParams.append('employeeId', params.employeeId);
       if (params?.status) queryParams.append('status', params.status);
       if (params?.sentBy) queryParams.append('sentBy', params.sentBy);
-      if (params?.startDate) queryParams.append('startDate', params.startDate);
-      if (params?.endDate) queryParams.append('endDate', params.endDate);
+      if (params?.startDate) queryParams.append('fromDate', params.startDate);
+      if (params?.endDate) queryParams.append('toDate', params.endDate);
+      
+      // Add default pagination parameters
+      queryParams.append('page', '1');
+      queryParams.append('pageSize', '1000');
 
       const response = await apiService.request<ApiResponse<EmailJob[]>>(`/email/jobs?${queryParams}`);
       return response.success && response.data ? response.data : [];

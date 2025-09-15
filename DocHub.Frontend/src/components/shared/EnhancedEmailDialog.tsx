@@ -198,7 +198,7 @@ export function EnhancedEmailDialog({
             body: JSON.stringify({
               employeeId: data.employee.employeeId,
               templateId: data.selectedTemplate.id,
-              signaturePath: data.selectedSignature.id,
+              signaturePath: data.selectedSignature.fileId,
               employeeData: data.employee.data || {}
             })
           });

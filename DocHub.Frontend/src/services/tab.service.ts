@@ -171,6 +171,20 @@ class TabService {
 
   async getActiveTabById(id: string): Promise<DynamicTab | null> {
     try {
+      console.log('🔍 [TAB-SERVICE] Getting tab by ID:', id);
+      
+      // First try to get from the list of all tabs (which includes department filtering)
+      const allTabs = await this.getAllTabs();
+      console.log('📊 [TAB-SERVICE] All tabs loaded:', allTabs.length);
+      
+      const tab = allTabs.find(t => t.id === id);
+      if (tab && tab.isActive) {
+        console.log('✅ [TAB-SERVICE] Found active tab in list:', tab.name);
+        return tab;
+      }
+      
+      // If not found in the filtered list, try direct API call as fallback
+      console.log('🔄 [TAB-SERVICE] Tab not found in filtered list, trying direct API call...');
       const response = await apiService.getLetterTypeDefinition(id);
       
       if (response.success && response.data) {
@@ -184,6 +198,7 @@ class TabService {
             description: letterType.Description || letterType.description,
             letterType: letterType.TypeKey || letterType.typeKey,
             isActive: isActive,
+            department: letterType.Department || 'ER',
             fieldConfiguration: letterType.fieldConfiguration,
             createdAt: letterType.CreatedAt || letterType.createdAt,
             updatedAt: letterType.UpdatedAt || letterType.updatedAt,
@@ -196,14 +211,17 @@ class TabService {
             fields: letterType.Fields || letterType.fields || []
           };
           
+          console.log('✅ [TAB-SERVICE] Found active tab via direct API call:', mappedTab.name);
           return mappedTab;
         } else {
-          // Tab is not active
+          console.log('❌ [TAB-SERVICE] Tab found but not active');
         }
+      } else {
+        console.log('❌ [TAB-SERVICE] API call failed or no data returned');
       }
       return null;
     } catch (error) {
-      console.error('Failed to get tab by ID:', error);
+      console.error('❌ [TAB-SERVICE] Failed to get tab by ID:', error);
       return null;
     }
   }
@@ -349,17 +367,22 @@ class TabService {
    */
   async getAllTabs(): Promise<DynamicTab[]> {
     try {
+      console.log('🔍 [TAB-SERVICE] Calling getLetterTypeDefinitions API...');
       const response = await apiService.getLetterTypeDefinitions();
+      console.log('📊 [TAB-SERVICE] API response:', response);
       if (response.success && response.data && Array.isArray(response.data)) {
+        console.log('📋 [TAB-SERVICE] Raw letter types:', response.data);
         // Convert LetterTypeDefinition to DynamicTab format
-        return response.data.map(letterType => ({
+        const mappedTabs = response.data.map(letterType => ({
           id: letterType.id,
           name: letterType.displayName,
           description: letterType.description,
           letterType: letterType.typeKey,
           isActive: letterType.isActive,
+          department: letterType.department || 'ER', // Add department field
           createdAt: letterType.createdAt,
           updatedAt: letterType.updatedAt,
+          fieldConfiguration: letterType.fieldConfiguration, // Add fieldConfiguration directly to tab
           metadata: {
             templateConfig: letterType.fieldConfiguration ? JSON.parse(letterType.fieldConfiguration) : {},
             customFields: letterType.fields || []
@@ -367,6 +390,8 @@ class TabService {
           letterTypeDefinition: letterType,
           fields: letterType.fields || []
         }));
+        console.log('✅ [TAB-SERVICE] Mapped tabs:', mappedTabs);
+        return mappedTabs;
       }
       console.warn('No data received from getLetterTypeDefinitions API or data is not an array:', response);
       return [];
@@ -523,8 +548,12 @@ class TabService {
    */
   async getTabsByDepartment(department: string): Promise<DynamicTab[]> {
     try {
+      console.log('🔍 [TAB-SERVICE] Getting tabs for department:', department);
       const tabs = await this.getAllTabs();
-      return tabs.filter(tab => tab.department === department);
+      console.log('📊 [TAB-SERVICE] All tabs received:', tabs);
+      const filteredTabs = tabs.filter(tab => tab.department === department);
+      console.log('✅ [TAB-SERVICE] Filtered tabs for department:', filteredTabs);
+      return filteredTabs;
     } catch (error) {
       console.error('Failed to get tabs by department:', error);
       return [];

@@ -207,6 +207,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   
   // Map data to Employee format for display - prioritize Excel data if available
   const mappedEmployees = useMemo(() => {
+    console.log('🔍 [DYNAMIC-TAB] Mapping employees - Excel data:', excelData?.length || 0, 'Tab data:', tabData?.length || 0);
+    
     // If we have Excel data, use it; otherwise use tabData
     if (excelData && excelData.length > 0) {
       console.log('🔍 [DYNAMIC-TAB] Mapping Excel data to employees:', excelData.length, 'rows');
@@ -243,8 +245,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     }
     
     // Fallback to tabData
+    console.log('🔍 [DYNAMIC-TAB] Using tabData fallback, records:', tabData.length);
     return tabData.map((record, index) => {
       try {
+        console.log('🔍 [DYNAMIC-TAB] Processing record:', index, record);
         const data = JSON.parse(record.data);
         return {
           id: record.id,
@@ -799,10 +803,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                   <thead>
                     <tr className="border-b border-gray-700">
                       <th className="text-left p-3 text-sm font-medium text-gray-300">Select</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-300">EMP ID</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-300">EMAIL</th>
                       {dynamicFields
-                        .filter(field => field.fieldKey !== 'EMP ID' && field.fieldKey !== 'EMAIL')
+                        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
                         .map((field) => (
                           <th key={field.id} className="text-left p-3 text-sm font-medium text-gray-300">
                             {field.displayName}
@@ -837,141 +839,102 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                             checked={selectedEmployees.some(emp => emp.id === employee.id)}
                           />
                         </td>
-                        {/* EMP ID Column */}
-                        <td 
-                          className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMP ID' ? 'bg-blue-900/20' : ''}`}
-                          onDoubleClick={() => handleCellDoubleClick(index, 'EMP ID', employee.employeeId || '')}
-                        >
-                          {editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMP ID' ? (
-                            <input
-                              type="text"
-                              value={editingValue}
-                              onChange={(e) => setEditingValue(e.target.value)}
-                              onKeyDown={(e) => handleKeyPress(e, employee.id, 'EMP ID')}
-                              onBlur={() => handleCellEditComplete(employee.id, 'EMP ID')}
-                              className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              style={{ 
-                                color: '#111827',
-                                backgroundColor: '#ffffff'
-                              }}
-                              autoFocus
-                              disabled={isUpdating}
-                            />
-                          ) : (
-                            <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
-                              {employee.employeeId || '-'}
-                            </span>
-                          )}
-                        </td>
-                        {/* EMAIL Column */}
-                        <td 
-                          className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMAIL' ? 'bg-blue-900/20' : ''}`}
-                          onDoubleClick={() => handleCellDoubleClick(index, 'EMAIL', employee.email || '')}
-                        >
-                          {editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMAIL' ? (
-                            <div>
-                              <input
-                                type="email"
-                                value={editingValue}
-                                onChange={(e) => setEditingValue(e.target.value)}
-                                onKeyDown={(e) => handleKeyPress(e, employee.id, 'EMAIL')}
-                                onBlur={() => handleCellEditComplete(employee.id, 'EMAIL')}
-                                className={`w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
-                                  emailError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
-                                }`}
-                                style={{ 
-                                  color: '#111827',
-                                  backgroundColor: '#ffffff'
-                                }}
-                                autoFocus
-                                disabled={isUpdating}
-                              />
-                              {emailError && (
-                                <div className="text-red-500 text-xs mt-1">
-                                  {emailError}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
-                              {employee.email || '-'}
-                            </span>
-                          )}
-                        </td>
-                        {/* Other Dynamic Fields */}
+                        {/* Dynamic Columns */}
                         {dynamicFields
-                          .filter(field => field.fieldKey !== 'EMP ID' && field.fieldKey !== 'EMAIL')
+                          .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
                           .map((field) => {
-                          // Map fieldKey to Employee property
-                          let value = '';
-                          switch (field.fieldKey) {
-                            case 'EMP ID':
-                              value = employee.employeeId || '';
-                              break;
-                            case 'EMP NAME':
-                              value = employee.name || '';
-                              break;
-                            case 'CLIENT':
-                              value = employee.client || '';
-                              break;
-                            case 'DOJ':
-                              value = employee.hireDate || employee.joiningDate || '';
-                              break;
-                            case 'LWD':
-                              value = employee.lastWorkingDay || '';
-                              break;
-                            case 'DESIGNATION':
-                              value = employee.designation || employee.department || employee.position || '';
-                              break;
-                            case 'CTC':
-                              value = employee.ctc || employee.salary || '';
-                              break;
-                            case 'EMAIL':
-                              value = employee.email || '';
-                              break;
-                            default:
-                              value = employee[field.fieldKey as keyof Employee] as string || '';
-                          }
-                          
-                          const isEditing = editingCell?.rowIndex === index && editingCell?.fieldKey === field.fieldKey;
-                          const displayValue = field.fieldType === 'Date' && value 
-                            ? new Date(value).toLocaleDateString()
-                            : value || '-';
-                          
-                          return (
-                            <td 
-                              key={field.id} 
-                              className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${isEditing ? 'bg-blue-900/20' : ''}`}
-                              onDoubleClick={() => handleCellDoubleClick(index, field.fieldKey, value)}
-                            >
-                              {isEditing ? (
-                                <input
-                                  type={field.fieldType === 'Number' ? 'number' : field.fieldType === 'Date' ? 'date' : 'text'}
-                                  value={editingValue}
-                                  onChange={(e) => setEditingValue(e.target.value)}
-                                  onKeyDown={(e) => handleKeyPress(e, employee.id, field.fieldKey)}
-                                  onBlur={() => handleCellEditComplete(employee.id, field.fieldKey)}
-                                  className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  style={{ 
-                                    color: '#111827',
-                                    backgroundColor: '#ffffff'
-                                  }}
-                                  autoFocus
-                                  disabled={isUpdating}
-                                />
-                              ) : (
-                                <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
-                                  {displayValue}
-                                </span>
-                              )}
-                            </td>
-                          );
-                        })}
+                            // Map fieldKey to Employee property or Excel data
+                            let fieldValue = '-';
+                            if (employee.data && employee.data[field.fieldKey]) {
+                              // Use Excel data if available
+                              fieldValue = employee.data[field.fieldKey];
+                            } else {
+                              // Map to Employee properties
+                              switch (field.fieldKey) {
+                                case 'EMP ID':
+                                  fieldValue = employee.employeeId || '-';
+                                  break;
+                                case 'EMP NAME':
+                                  fieldValue = employee.name || '-';
+                                  break;
+                                case 'CLIENT':
+                                  fieldValue = employee.client || '-';
+                                  break;
+                                case 'DOJ':
+                                  fieldValue = employee.hireDate || employee.joiningDate || '-';
+                                  break;
+                                case 'LWD':
+                                  fieldValue = employee.lastWorkingDay || '-';
+                                  break;
+                                case 'DESIGNATION':
+                                  fieldValue = employee.designation || employee.department || employee.position || '-';
+                                  break;
+                                case 'CTC':
+                                  fieldValue = employee.ctc || employee.salary || '-';
+                                  break;
+                                case 'EMAIL':
+                                  fieldValue = employee.email || '-';
+                                  break;
+                                default:
+                                  // Try to find the field in employee data
+                                  const normalizedKey = field.fieldKey.toLowerCase().replace(/\s+/g, '');
+                                  fieldValue = employee[normalizedKey as keyof Employee] as string || '-';
+                              }
+                            }
+                            
+                            // Format the value based on field type
+                            if (field.fieldType === 'Date' && fieldValue && fieldValue !== '-') {
+                              try {
+                                fieldValue = new Date(fieldValue).toLocaleDateString();
+                              } catch (e) {
+                                // Keep original value if date parsing fails
+                              }
+                            }
+                            const isEditing = editingCell?.rowIndex === index && editingCell?.fieldKey === field.fieldKey;
+                            
+                            return (
+                              <td 
+                                key={field.id}
+                                className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${isEditing ? 'bg-blue-900/20' : ''}`}
+                                onDoubleClick={() => handleCellDoubleClick(index, field.fieldKey, fieldValue)}
+                              >
+                                {isEditing ? (
+                                  <div>
+                                    <input
+                                      type={field.fieldType === 'Email' ? 'email' : 'text'}
+                                      value={editingValue}
+                                      onChange={(e) => setEditingValue(e.target.value)}
+                                      onKeyDown={(e) => handleKeyPress(e, employee.id, field.fieldKey)}
+                                      onBlur={() => handleCellEditComplete(employee.id, field.fieldKey)}
+                                      className={`w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
+                                        emailError && field.fieldType === 'Email' ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
+                                      }`}
+                                      style={{ 
+                                        color: '#111827',
+                                        backgroundColor: '#ffffff'
+                                      }}
+                                      autoFocus
+                                      disabled={isUpdating}
+                                    />
+                                    {emailError && field.fieldType === 'Email' && (
+                                      <div className="text-red-500 text-xs mt-1">
+                                        {emailError}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
+                                    {fieldValue}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={dynamicFields.length + 3} className="p-8 text-center text-gray-400">
+                      <td colSpan={dynamicFields.length + 1} className="p-8 text-center text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
                             <div className="h-8 w-8 text-gray-600">👥</div>

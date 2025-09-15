@@ -10,6 +10,7 @@ export interface LetterTypeDefinition {
   typeKey: string;
   displayName: string;
   description: string;
+  department: string;
   fieldConfiguration?: string;
   isActive: boolean;
   fields: DynamicField[];
@@ -929,17 +930,71 @@ class ApiService {
 
   // Signature APIs
   async getSignatures(): Promise<ApiResponse<Signature[]>> {
-    return this.request<ApiResponse<Signature[]>>('/File/signatures');
+    const response = await this.request<any[]>('/File/signatures');
+    
+    // Debug: Log the raw response to see the actual structure
+    console.log('🔍 [API-SERVICE] Raw signature response:', response);
+    console.log('🔍 [API-SERVICE] First signature object:', response[0]);
+    console.log('🔍 [API-SERVICE] First signature keys:', response[0] ? Object.keys(response[0]) : 'No signatures');
+    
+    // Backend returns SignatureDto[] directly, convert to frontend Signature[] format
+    const frontendSignatures: Signature[] = response.map(sig => {
+      console.log('🔍 [API-SERVICE] Mapping signature:', sig);
+      return {
+        id: sig.id,
+        name: sig.name,
+        fileName: sig.fileName,
+        fileId: sig.fileId, // FileReference ID needed for backend
+        fileUrl: `/api/File/${sig.fileId}/download`, // Construct download URL
+        fileSize: 0, // Not available in SignatureDto
+        mimeType: 'image/png', // Default, not available in SignatureDto
+        createdBy: 'System', // Not available in SignatureDto
+        createdAt: new Date(sig.createdAt),
+        updatedAt: new Date(sig.updatedAt)
+      };
+    });
+    
+    console.log('🔍 [API-SERVICE] Mapped signatures:', frontendSignatures);
+    
+    return {
+      success: true,
+      data: frontendSignatures
+    };
   }
 
   async uploadSignature(signature: FormData): Promise<ApiResponse<Signature>> {
-    return this.request<ApiResponse<Signature>>('/File/signatures', {
+    const response = await this.request<any>('/File/signatures', {
       method: 'POST',
       body: signature,
       headers: {
         ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {})
       }
     });
+    
+    // Debug: Log the upload response
+    console.log('🔍 [API-SERVICE] Upload signature response:', response);
+    console.log('🔍 [API-SERVICE] Response keys:', Object.keys(response));
+    
+    // Backend returns SignatureDto, convert to frontend Signature format
+    const frontendSignature: Signature = {
+      id: response.id,
+      name: response.name,
+      fileName: response.fileName,
+      fileId: response.fileId, // FileReference ID needed for backend
+      fileUrl: `/api/File/${response.fileId}/download`, // Construct download URL
+      fileSize: 0, // Not available in SignatureDto
+      mimeType: 'image/png', // Default, not available in SignatureDto
+      createdBy: 'System', // Not available in SignatureDto
+      createdAt: new Date(response.createdAt),
+      updatedAt: new Date(response.updatedAt)
+    };
+    
+    console.log('🔍 [API-SERVICE] Mapped upload signature:', frontendSignature);
+    
+    return {
+      success: true,
+      data: frontendSignature
+    };
   }
 
   async deleteSignature(id: string): Promise<ApiResponse<void>> {
@@ -2076,6 +2131,7 @@ export interface Signature {
   id: string;
   name: string;
   fileName: string;
+  fileId: string; // FileReference ID needed for backend
   fileUrl: string;
   fileSize: number;
   mimeType: string;

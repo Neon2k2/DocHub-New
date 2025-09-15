@@ -52,7 +52,7 @@ builder.Services.AddScoped<IDepartmentAccessService, DepartmentAccessService>();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var secretKey = jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret not configured");
+var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT Secret not configured");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -138,6 +138,28 @@ try
         await context.Database.MigrateAsync();
         logger.LogInformation("✅ [STARTUP] Database migrations completed.");
         
+        // Create system roles if they don't exist
+        logger.LogInformation("🔍 [STARTUP] Checking system roles...");
+        var systemRoles = new[]
+        {
+            new DocHub.Core.Entities.Role { Name = "SuperAdmin", Description = "Full system access", IsSystemRole = true, IsActive = true },
+            new DocHub.Core.Entities.Role { Name = "Admin", Description = "Administrative access", IsSystemRole = true, IsActive = true },
+            new DocHub.Core.Entities.Role { Name = "Manager", Description = "Management access", IsSystemRole = true, IsActive = true },
+            new DocHub.Core.Entities.Role { Name = "User", Description = "Standard user access", IsSystemRole = true, IsActive = true }
+        };
+
+        foreach (var role in systemRoles)
+        {
+            if (!await context.Roles.AnyAsync(r => r.Name == role.Name))
+            {
+                role.CreatedAt = DateTime.UtcNow;
+                role.UpdatedAt = DateTime.UtcNow;
+                context.Roles.Add(role);
+                logger.LogInformation("✅ [STARTUP] Created role: {RoleName}", role.Name);
+            }
+        }
+        await context.SaveChangesAsync();
+
         // Create admin user if it doesn't exist
         logger.LogInformation("🔍 [STARTUP] Checking if admin user exists...");
         var adminExists = await context.Users.AnyAsync(u => u.Email == "admin@collabera.com");
@@ -154,6 +176,7 @@ try
                 LastName = "User",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
                 IsActive = true,
+                Department = "ER", // Set department for admin
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -161,10 +184,59 @@ try
             context.Users.Add(adminUser);
             await context.SaveChangesAsync();
             logger.LogInformation("✅ [STARTUP] Admin user created successfully: admin@collabera.com / admin123");
+            
+            // Assign Admin role to admin user
+            var adminRole = await context.Roles.FirstOrDefaultAsync(r => r.Name == "Admin");
+            if (adminRole != null)
+            {
+                var userRole = new DocHub.Core.Entities.UserRole
+                {
+                    UserId = adminUser.Id,
+                    RoleId = adminRole.Id,
+                    AssignedAt = DateTime.UtcNow
+                };
+                context.UserRoles.Add(userRole);
+                await context.SaveChangesAsync();
+                logger.LogInformation("✅ [STARTUP] Assigned Admin role to admin user");
+            }
         }
         else
         {
             logger.LogInformation("ℹ️ [STARTUP] Admin user already exists");
+            
+            // Check if admin user has Admin role, if not assign it
+            var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Email == "admin@collabera.com");
+            if (adminUser != null)
+            {
+                var hasAdminRole = await context.UserRoles
+                    .Include(ur => ur.Role)
+                    .AnyAsync(ur => ur.UserId == adminUser.Id && ur.Role.Name == "Admin");
+                
+                if (!hasAdminRole)
+                {
+                    var adminRole = await context.Roles.FirstOrDefaultAsync(r => r.Name == "Admin");
+                    if (adminRole != null)
+                    {
+                        var userRole = new DocHub.Core.Entities.UserRole
+                        {
+                            UserId = adminUser.Id,
+                            RoleId = adminRole.Id,
+                            AssignedAt = DateTime.UtcNow
+                        };
+                        context.UserRoles.Add(userRole);
+                        await context.SaveChangesAsync();
+                        logger.LogInformation("✅ [STARTUP] Assigned Admin role to existing admin user");
+                    }
+                }
+                
+                // Update admin user department if it's empty
+                if (string.IsNullOrEmpty(adminUser.Department))
+                {
+                    adminUser.Department = "ER";
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("✅ [STARTUP] Updated admin user department to ER");
+                }
+            }
         }
     }
     

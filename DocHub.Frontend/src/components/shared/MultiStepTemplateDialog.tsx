@@ -88,10 +88,13 @@ export function MultiStepTemplateDialog({
 
   const loadSignatures = async () => {
     try {
+      console.log('🔍 [MultiStepTemplateDialog] Loading signatures...');
       const data = await documentService.getSignatures();
+      console.log('🔍 [MultiStepTemplateDialog] Signatures loaded:', data);
+      console.log('🔍 [MultiStepTemplateDialog] Number of signatures:', data.length);
       setSignatures(data);
     } catch (error) {
-      console.error('Failed to load signatures:', error);
+      console.error('❌ [MultiStepTemplateDialog] Failed to load signatures:', error);
     }
   };
 
@@ -164,16 +167,16 @@ export function MultiStepTemplateDialog({
       );
       console.log('✅ [MultiStepTemplateDialog] Signature uploaded successfully:', newSignature);
       
+      // Update signatures list and immediately select the new signature
       setSignatures([newSignature, ...signatures]);
       setSignatureUploadFile(null);
       setSignatureUploadName('');
       setSignatureTab('existing');
       
-      // Automatically select the newly uploaded signature
-      setTimeout(() => {
-        console.log('🔍 [MultiStepTemplateDialog] Auto-selecting uploaded signature');
-        handleSignatureSelect(newSignature);
-      }, 500); // Small delay to ensure UI updates
+      // Immediately select the newly uploaded signature and advance to next step
+      console.log('🔍 [MultiStepTemplateDialog] Auto-selecting uploaded signature');
+      setSelectedSignature(newSignature);
+      setCurrentStep(3); // Move directly to preview/complete step
     } catch (error) {
       console.error('❌ [MultiStepTemplateDialog] Failed to upload signature:', error);
     } finally {
@@ -394,13 +397,6 @@ export function MultiStepTemplateDialog({
               <TabsContent value="upload" className="flex-1 min-h-0 mt-4">
                 <ScrollArea className="h-full pr-4">
                   <div className="space-y-4">
-                    <div className="text-center py-8">
-                      <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                      <h3 className="text-lg font-semibold mb-2">Upload New Template</h3>
-                      <p className="text-muted-foreground mb-4">
-                        Upload a Word document (.docx) template for {getLetterTypeLabel(letterType).toLowerCase()}s.
-                      </p>
-                    </div>
 
                     <div className="space-y-4">
                       <div>
@@ -488,16 +484,20 @@ export function MultiStepTemplateDialog({
               </TabsList>
 
               <TabsContent value="existing" className="flex-1 min-h-0 mt-4">
-                {signatures.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No signatures available.</p>
-                    <p className="text-sm">You can skip this step and add signatures later.</p>
-                  </div>
-                ) : (
+                {(() => {
+                  console.log('🔍 [MultiStepTemplateDialog] Rendering signatures section, count:', signatures.length);
+                  console.log('🔍 [MultiStepTemplateDialog] Signatures data:', signatures);
+                  return signatures.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No signatures available.</p>
+                      <p className="text-sm">You can skip this step and add signatures later.</p>
+                    </div>
+                  ) : (
                   <ScrollArea className="h-full pr-4">
                     <div className="grid gap-4">
                       <Card
+                        key="no-signature"
                         className={`dialog-content-solid cursor-pointer hover:bg-muted/20 transition-colors ${
                           selectedSignature === null ? 'ring-2 ring-primary' : ''
                         }`}
@@ -543,7 +543,8 @@ export function MultiStepTemplateDialog({
                       ))}
                     </div>
                   </ScrollArea>
-                )}
+                  );
+                })()}
               </TabsContent>
 
               <TabsContent value="upload" className="flex-1 min-h-0 mt-4">

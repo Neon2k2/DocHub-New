@@ -3,8 +3,8 @@ import { ERDashboard } from '../components/er/Dashboard';
 import { AdminSettings } from '../components/admin/AdminSettings';
 import { TabManagement } from '../components/admin/TabManagement';
 import { TabPersistenceManager } from '../components/admin/TabPersistenceManager';
-import { UserManagement } from '../components/admin/UserManagement';
-import { SessionManagement } from '../components/admin/SessionManagement';
+import UserManagement from '../components/admin/UserManagement';
+import SessionManagement from '../components/admin/SessionManagement';
 import { WelcomeDashboard } from '../components/WelcomeDashboard';
 import { PlaceholderPage } from '../components/shared/PlaceholderPage';
 import { UnauthorizedPage } from '../components/shared/UnauthorizedPage';
@@ -30,12 +30,24 @@ const DynamicTabRenderer: React.FC<{ tabId: string }> = ({ tabId }) => {
   React.useEffect(() => {
     const loadTab = async () => {
       try {
-        console.log('DynamicTabRenderer: Loading tab with ID:', tabId);
+        console.log('🔍 [DYNAMIC-TAB-RENDERER] Loading tab with ID:', tabId);
         const tabData = await tabService.getActiveTabById(tabId);
-        console.log('DynamicTabRenderer: Tab data received:', tabData);
+        console.log('📊 [DYNAMIC-TAB-RENDERER] Tab data received:', tabData);
+        
+        if (tabData) {
+          console.log('✅ [DYNAMIC-TAB-RENDERER] Tab found successfully:', {
+            id: tabData.id,
+            name: tabData.name,
+            isActive: tabData.isActive,
+            department: tabData.department
+          });
+        } else {
+          console.log('❌ [DYNAMIC-TAB-RENDERER] No tab data returned');
+        }
+        
         setTab(tabData);
       } catch (error) {
-        console.error('Failed to load tab:', error);
+        console.error('❌ [DYNAMIC-TAB-RENDERER] Failed to load tab:', error);
       } finally {
         setLoading(false);
       }

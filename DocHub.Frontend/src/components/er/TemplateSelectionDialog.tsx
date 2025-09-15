@@ -316,10 +316,6 @@ export function TemplateSelectionDialog({
           <TabsContent value="upload" className="flex-1 mt-4 min-h-0 overflow-y-auto">
             <Card className="dialog-content-solid">
               <CardHeader>
-                <CardTitle>Upload New Template</CardTitle>
-                <CardDescription>
-                  Upload a Word document (.docx) with content controls for placeholders
-                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">

@@ -24,22 +24,28 @@ export function useTabData(tabId: string, page: number = 1, pageSize: number = 1
       setLoading(true);
       setError(null);
       
+      console.log('🔍 [USE-TAB-DATA] Fetching data for tab:', tabId, 'page:', page, 'pageSize:', pageSize);
+      
       const response = await apiService.getTabData(tabId, {
-        page: currentPage,
+        page: page,
         pageSize
       });
       
+      console.log('📊 [USE-TAB-DATA] API response:', response);
+      
       if (response.success && response.data) {
+        console.log('✅ [USE-TAB-DATA] Data received:', response.data.items?.length || 0, 'items');
         setData(response.data.items || []);
         setTotalCount(response.data.pagination?.totalRecords || 0);
         setCurrentPage(response.data.pagination?.currentPage || 1);
         setTotalPages(response.data.pagination?.totalPages || 0);
       } else {
+        console.log('❌ [USE-TAB-DATA] No data in response:', response);
         setError('Failed to fetch tab data');
       }
     } catch (err) {
+      console.error('❌ [USE-TAB-DATA] Error fetching tab data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
-      console.error('Error fetching tab data:', err);
     } finally {
       setLoading(false);
     }
@@ -49,7 +55,7 @@ export function useTabData(tabId: string, page: number = 1, pageSize: number = 1
     if (tabId) {
       fetchData();
     }
-  }, [tabId, currentPage, pageSize]);
+  }, [tabId, page, pageSize]);
 
   return {
     data,

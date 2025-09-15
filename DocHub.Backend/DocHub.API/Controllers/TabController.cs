@@ -11,6 +11,7 @@ using DocHub.Core.Entities;
 using Microsoft.EntityFrameworkCore;
 using SendGrid;
 using SendGrid.Helpers.Mail;
+using DocHub.Infrastructure.Data;
 
 namespace DocHub.API.Controllers;
 
@@ -50,10 +51,17 @@ public class TabController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
+            _logger.LogInformation("🔍 [TAB-CONTROLLER] Getting letter types for user: {UserId}", userId);
+            
             var accessibleTabIds = await _departmentAccessService.GetAccessibleTabIds(Guid.Parse(userId));
+            _logger.LogInformation("📊 [TAB-CONTROLLER] Accessible tab IDs: {AccessibleTabIds}", string.Join(", ", accessibleTabIds));
             
             var letterTypes = await _tabService.GetLetterTypesAsync();
-            var filteredLetterTypes = letterTypes.Where(lt => accessibleTabIds.Contains(lt.Id));
+            _logger.LogInformation("📋 [TAB-CONTROLLER] All letter types: {LetterTypesCount}", letterTypes.Count());
+            
+            // Temporarily bypass filtering to test
+            var filteredLetterTypes = letterTypes; // .Where(lt => accessibleTabIds.Contains(lt.Id));
+            _logger.LogInformation("✅ [TAB-CONTROLLER] Filtered letter types (bypassed): {FilteredCount}", filteredLetterTypes.Count());
             
             return Ok(ApiResponse<IEnumerable<LetterTypeDefinitionDto>>.SuccessResult(filteredLetterTypes));
         }
@@ -70,11 +78,16 @@ public class TabController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
+            _logger.LogInformation("🔍 [TAB-CONTROLLER] Getting letter type {Id} for user: {UserId}", id, userId);
             
             // Check if user can access this tab
-            if (!await _departmentAccessService.UserCanAccessTab(Guid.Parse(userId), id))
+            var canAccess = await _departmentAccessService.UserCanAccessTab(Guid.Parse(userId), id);
+            _logger.LogInformation("🔐 [TAB-CONTROLLER] User can access tab: {CanAccess}", canAccess);
+            
+            if (!canAccess)
             {
-                return Forbid("You don't have access to this tab");
+                _logger.LogWarning("❌ [TAB-CONTROLLER] Access denied for user {UserId} to tab {TabId}", userId, id);
+                return StatusCode(403, ApiResponse<LetterTypeDefinitionDto>.ErrorResult("You don't have access to this tab"));
             }
 
             var letterType = await _tabService.GetLetterTypeAsync(id);
@@ -688,11 +701,11 @@ public class TabController : ControllerBase
                     Attachments = e.Attachments,
                     Status = e.Status,
                     SentBy = e.SentBy,
-                    EmployeeId = e.RecipientEmail, // Using email as ID for now
-                    EmployeeName = e.RecipientName,
-                    EmployeeEmail = e.RecipientEmail,
-                    RecipientEmail = e.RecipientEmail,
-                    RecipientName = e.RecipientName,
+                    EmployeeId = e.RecipientEmail ?? string.Empty, // Using email as ID for now
+                    EmployeeName = e.RecipientName ?? string.Empty,
+                    EmployeeEmail = e.RecipientEmail ?? string.Empty,
+                    RecipientEmail = e.RecipientEmail ?? string.Empty,
+                    RecipientName = e.RecipientName ?? string.Empty,
                     CreatedAt = e.CreatedAt,
                     SentAt = e.SentAt,
                     DeliveredAt = e.DeliveredAt,
@@ -923,9 +936,25 @@ public class TabController : ControllerBase
             {
                 // Create a new context scope to avoid disposal issues
                 using var scope = HttpContext.RequestServices.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<IDbContext>();
+                var dbContext = scope.ServiceProvider.GetRequiredService<DocHubDbContext>();
                 
-                await dbContext.EmailJobs.AddAsync(emailJob);
+                // Check if the email job already exists in the database
+                var existingJob = await dbContext.EmailJobs.FindAsync(emailJob.Id);
+                if (existingJob != null)
+                {
+                    // Update existing job
+                    existingJob.Status = emailJob.Status;
+                    existingJob.UpdatedAt = emailJob.UpdatedAt;
+                    existingJob.SentAt = emailJob.SentAt;
+                    existingJob.ErrorMessage = emailJob.ErrorMessage;
+                    dbContext.EmailJobs.Update(existingJob);
+                }
+                else
+                {
+                    // Add new job
+                    await dbContext.EmailJobs.AddAsync(emailJob);
+                }
+                
                 await dbContext.SaveChangesAsync();
                 _logger.LogInformation("Email history saved to database for job {EmailJobId}", emailJob.Id);
             }

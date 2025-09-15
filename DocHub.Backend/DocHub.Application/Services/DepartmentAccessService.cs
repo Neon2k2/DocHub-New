@@ -40,7 +40,7 @@ public class DepartmentAccessService : IDepartmentAccessService
             }
 
             // Regular users can only access their own department
-            return user.Department.Equals(department, StringComparison.OrdinalIgnoreCase);
+            return user.Department.ToLower() == department.ToLower();
         }
         catch (Exception ex)
         {
@@ -53,21 +53,42 @@ public class DepartmentAccessService : IDepartmentAccessService
     {
         try
         {
+            _logger.LogInformation("🔍 [DEPT-ACCESS] Checking tab access for user {UserId}, tab {TabId}", userId, tabId);
+            
             var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null) return false;
+            if (user == null) 
+            {
+                _logger.LogWarning("❌ [DEPT-ACCESS] User not found: {UserId}", userId);
+                return false;
+            }
+
+            _logger.LogInformation("👤 [DEPT-ACCESS] User department: {UserDepartment}", user.Department);
 
             // SuperAdmin and Admin can access all tabs
-            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin"))
+            var isAdmin = await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin");
+            _logger.LogInformation("🔐 [DEPT-ACCESS] User is admin: {IsAdmin}", isAdmin);
+            
+            if (isAdmin)
             {
+                _logger.LogInformation("✅ [DEPT-ACCESS] Admin access granted");
                 return true;
             }
 
             // Get the tab's department
             var tab = await _letterTypeRepository.GetByIdAsync(tabId);
-            if (tab == null) return false;
+            if (tab == null) 
+            {
+                _logger.LogWarning("❌ [DEPT-ACCESS] Tab not found: {TabId}", tabId);
+                return false;
+            }
+
+            _logger.LogInformation("📋 [DEPT-ACCESS] Tab department: {TabDepartment}", tab.Department);
 
             // Check if user's department matches tab's department
-            return user.Department.Equals(tab.Department, StringComparison.OrdinalIgnoreCase);
+            var canAccess = user.Department.ToLower() == tab.Department.ToLower();
+            _logger.LogInformation("🔍 [DEPT-ACCESS] Department match: {CanAccess}", canAccess);
+            
+            return canAccess;
         }
         catch (Exception ex)
         {
@@ -94,7 +115,7 @@ public class DepartmentAccessService : IDepartmentAccessService
 
             // Regular users can only access tabs from their department
             return await _dbContext.LetterTypeDefinitions
-                .Where(lt => lt.IsActive && lt.Department.Equals(user.Department, StringComparison.OrdinalIgnoreCase))
+                .Where(lt => lt.IsActive && (lt.Department == null || lt.Department == "" || lt.Department.ToLower() == user.Department.ToLower()))
                 .Select(lt => lt.Id)
                 .ToListAsync();
         }
@@ -141,7 +162,7 @@ public class DepartmentAccessService : IDepartmentAccessService
                 return true;
             }
 
-            return user.Department.Equals(department, StringComparison.OrdinalIgnoreCase);
+            return user.Department.ToLower() == department.ToLower();
         }
         catch (Exception ex)
         {
@@ -161,7 +182,7 @@ public class DepartmentAccessService : IDepartmentAccessService
             var hasManagePermission = await UserHasPermissionAsync(userId, "tabs.manage");
 
             var tabs = await _dbContext.LetterTypeDefinitions
-                .Where(lt => lt.IsActive && (isAdmin || lt.Department.Equals(user.Department, StringComparison.OrdinalIgnoreCase)))
+                .Where(lt => lt.IsActive && (isAdmin || lt.Department.ToLower() == user.Department.ToLower()))
                 .Select(lt => new TabAccessDto
                 {
                     TabId = lt.Id,
@@ -188,7 +209,7 @@ public class DepartmentAccessService : IDepartmentAccessService
         {
             return await _dbContext.UserRoles
                 .Include(ur => ur.Role)
-                .Where(ur => ur.UserId == userId && !ur.IsExpired)
+                .Where(ur => ur.UserId == userId && (ur.ExpiresAt == null || ur.ExpiresAt > DateTime.UtcNow))
                 .AnyAsync(ur => ur.Role.Name == roleName && ur.Role.IsActive);
         }
         catch (Exception ex)
