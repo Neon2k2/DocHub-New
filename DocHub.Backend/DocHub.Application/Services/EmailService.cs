@@ -12,7 +12,6 @@ namespace DocHub.Application.Services;
 public class EmailService : IEmailService
 {
     private readonly IRepository<EmailJob> _emailJobRepository;
-    private readonly IRepository<EmailTemplate> _emailTemplateRepository;
     private readonly IRepository<LetterTypeDefinition> _letterTypeRepository;
     private readonly IRepository<GeneratedDocument> _documentRepository;
     private readonly IRepository<TableSchema> _tableSchemaRepository;
@@ -25,7 +24,6 @@ public class EmailService : IEmailService
 
     public EmailService(
         IRepository<EmailJob> emailJobRepository,
-        IRepository<EmailTemplate> emailTemplateRepository,
         IRepository<LetterTypeDefinition> letterTypeRepository,
         IRepository<GeneratedDocument> documentRepository,
         IRepository<TableSchema> tableSchemaRepository,
@@ -37,7 +35,6 @@ public class EmailService : IEmailService
         IConfiguration configuration)
     {
         _emailJobRepository = emailJobRepository;
-        _emailTemplateRepository = emailTemplateRepository;
         _letterTypeRepository = letterTypeRepository;
         _documentRepository = documentRepository;
         _tableSchemaRepository = tableSchemaRepository;
@@ -72,15 +69,6 @@ public class EmailService : IEmailService
             string finalSubject = request.Subject;
             string finalContent = request.Content;
 
-            if (request.EmailTemplateId.HasValue)
-            {
-                var template = await _emailTemplateRepository.GetByIdAsync(request.EmailTemplateId.Value);
-                if (template != null)
-                {
-                    finalSubject = template.Subject;
-                    finalContent = template.Content;
-                }
-            }
 
             // Create email job
             var emailJob = new EmailJob
@@ -88,7 +76,6 @@ public class EmailService : IEmailService
                 LetterTypeDefinitionId = request.LetterTypeDefinitionId,
                 ExcelUploadId = request.ExcelUploadId,
                 DocumentId = request.DocumentId,
-                EmailTemplateId = request.EmailTemplateId,
                 Subject = finalSubject,
                 Content = finalContent,
                 Attachments = request.Attachments,
@@ -126,7 +113,6 @@ public class EmailService : IEmailService
                     LetterTypeDefinitionId = request.LetterTypeDefinitionId,
                     ExcelUploadId = excelUploadId,
                     DocumentId = null, // Will be determined per record
-                    EmailTemplateId = request.EmailTemplateId,
                     Subject = request.Subject,
                     Content = request.Content,
                     Attachments = request.Attachments
@@ -154,7 +140,6 @@ public class EmailService : IEmailService
                 e => e.LetterTypeDefinition!,
                 e => e.ExcelUpload!,
                 e => e.Document!,
-                e => e.EmailTemplate!,
                 e => e.SentByUser!
             );
 
@@ -184,7 +169,6 @@ public class EmailService : IEmailService
                 e => e.LetterTypeDefinition!,
                 e => e.ExcelUpload!,
                 e => e.Document!,
-                e => e.EmailTemplate!,
                 e => e.SentByUser!
             );
 
@@ -212,7 +196,6 @@ public class EmailService : IEmailService
                 e => e.LetterTypeDefinition!,
                 e => e.ExcelUpload!,
                 e => e.Document!,
-                e => e.EmailTemplate!,
                 e => e.SentByUser!
             );
 
@@ -239,7 +222,6 @@ public class EmailService : IEmailService
                 e => e.LetterTypeDefinition!,
                 e => e.ExcelUpload!,
                 e => e.Document!,
-                e => e.EmailTemplate!,
                 e => e.SentByUser!
             );
 
@@ -606,8 +588,6 @@ public class EmailService : IEmailService
             ExcelUploadId = emailJob.ExcelUploadId,
             DocumentId = emailJob.DocumentId,
             DocumentName = emailJob.Document?.Template?.Name ?? string.Empty,
-            EmailTemplateId = emailJob.EmailTemplateId,
-            EmailTemplateName = emailJob.EmailTemplate?.Name ?? string.Empty,
             Subject = emailJob.Subject,
             Content = emailJob.Content,
             Attachments = emailJob.Attachments,
@@ -672,132 +652,6 @@ public class EmailService : IEmailService
         return cleanTabName;
     }
 
-    // Email Template Management
-    public async Task<EmailTemplateDto> CreateEmailTemplateAsync(CreateEmailTemplateRequest request, string userId)
-    {
-        try
-        {
-            var template = new EmailTemplate
-            {
-                Name = request.Name,
-                Subject = request.Subject,
-                Content = request.Content,
-                Placeholders = request.Placeholders,
-                IsActive = true,
-                CreatedBy = Guid.Parse(userId),
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            await _emailTemplateRepository.AddAsync(template);
-            await _dbContext.SaveChangesAsync();
-
-            return MapToEmailTemplateDto(template);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating email template");
-            throw;
-        }
-    }
-
-    public async Task<EmailTemplateDto> UpdateEmailTemplateAsync(Guid templateId, UpdateEmailTemplateRequest request, string userId)
-    {
-        try
-        {
-            var template = await _emailTemplateRepository.GetByIdAsync(templateId);
-            if (template == null)
-            {
-                throw new ArgumentException("Email template not found");
-            }
-
-            template.Name = request.Name ?? string.Empty;
-            template.Subject = request.Subject ?? string.Empty;
-            template.Content = request.Content ?? string.Empty;
-            template.Placeholders = request.Placeholders;
-            template.IsActive = request.IsActive ?? true;
-            template.UpdatedBy = Guid.Parse(userId);
-            template.UpdatedAt = DateTime.UtcNow;
-
-            await _emailTemplateRepository.UpdateAsync(template);
-            await _dbContext.SaveChangesAsync();
-
-            return MapToEmailTemplateDto(template);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating email template");
-            throw;
-        }
-    }
-
-    public async Task DeleteEmailTemplateAsync(Guid templateId, string userId)
-    {
-        try
-        {
-            var template = await _emailTemplateRepository.GetByIdAsync(templateId);
-            if (template == null)
-            {
-                throw new ArgumentException("Email template not found");
-            }
-
-            await _emailTemplateRepository.DeleteAsync(template);
-            await _dbContext.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting email template");
-            throw;
-        }
-    }
-
-    public async Task<IEnumerable<EmailTemplateDto>> GetEmailTemplatesAsync(string userId)
-    {
-        try
-        {
-            var templates = await _emailTemplateRepository.GetAllAsync();
-            return templates.Select(MapToEmailTemplateDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting email templates");
-            throw;
-        }
-    }
-
-    public async Task<EmailTemplateDto> GetEmailTemplateByIdAsync(Guid templateId, string userId)
-    {
-        try
-        {
-            var template = await _emailTemplateRepository.GetByIdAsync(templateId);
-            if (template == null)
-            {
-                throw new ArgumentException("Email template not found");
-            }
-
-            return MapToEmailTemplateDto(template);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting email template by ID");
-            throw;
-        }
-    }
-
-    private EmailTemplateDto MapToEmailTemplateDto(EmailTemplate template)
-    {
-        return new EmailTemplateDto
-        {
-            Id = template.Id,
-            Name = template.Name,
-            Subject = template.Subject,
-            Content = template.Content,
-            Placeholders = template.Placeholders,
-            IsActive = template.IsActive,
-            CreatedAt = template.CreatedAt,
-            UpdatedAt = template.UpdatedAt
-        };
-    }
 
     // Additional interface methods
     public async Task<EmailJobDto> GetEmailStatusAsync(Guid emailJobId)
@@ -847,7 +701,6 @@ public class EmailService : IEmailService
                 .Include(e => e.LetterTypeDefinition)
                 .Include(e => e.ExcelUpload)
                 .Include(e => e.Document)
-                .Include(e => e.EmailTemplate)
                 .Include(e => e.SentByUser)
                 .ToListAsync();
 
@@ -866,77 +719,6 @@ public class EmailService : IEmailService
         }
     }
 
-    public async Task<IEnumerable<EmailTemplateDto>> GetEmailTemplatesAsync(Guid? letterTypeId = null)
-    {
-        try
-        {
-            var query = _dbContext.EmailTemplates.AsQueryable();
-            
-            if (letterTypeId.HasValue)
-            {
-                // Filter by letter type if needed
-                query = query.Where(t => t.IsActive);
-            }
-
-            var templates = await query.ToListAsync();
-            return templates.Select(MapToEmailTemplateDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting email templates");
-            throw;
-        }
-    }
-
-    public async Task<EmailTemplateDto> GetEmailTemplateAsync(Guid templateId)
-    {
-        try
-        {
-            var template = await _emailTemplateRepository.GetByIdAsync(templateId);
-            if (template == null)
-            {
-                throw new ArgumentException("Email template not found");
-            }
-
-            return MapToEmailTemplateDto(template);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting email template");
-            throw;
-        }
-    }
-
-    public async Task<EmailJobDto> ProcessEmailTemplateAsync(Guid templateId, object data)
-    {
-        try
-        {
-            var template = await _emailTemplateRepository.GetByIdAsync(templateId);
-            if (template == null)
-            {
-                throw new ArgumentException("Email template not found");
-            }
-
-            var renderedContent = await RenderEmailContentAsync(template.Content, data);
-            
-            // Create a mock email job for the processed template
-            var mockEmailJob = new EmailJob
-            {
-                Id = Guid.NewGuid(),
-                Subject = template.Subject,
-                Content = renderedContent,
-                Status = "processed",
-                CreatedAt = DateTime.UtcNow
-            };
-            
-            return await MapToEmailJobDtoAsync(mockEmailJob);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing email template");
-            throw;
-        }
-    }
 
     public async Task<string> RenderEmailContentAsync(string content, object data)
     {
@@ -1169,7 +951,6 @@ public class EmailService : IEmailService
                 .Include(e => e.LetterTypeDefinition)
                 .Include(e => e.ExcelUpload)
                 .Include(e => e.Document)
-                .Include(e => e.EmailTemplate)
                 .Include(e => e.SentByUser)
                 .ToListAsync();
 

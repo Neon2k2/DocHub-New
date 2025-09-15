@@ -16,15 +16,6 @@ export interface GeneratedDocument {
   downloadUrl?: string;
 }
 
-export interface EmailTemplate {
-  id: string;
-  name: string;
-  subject: string;
-  content: string; // HTML content
-  placeholders: string[];
-  createdBy: string;
-  createdAt: Date;
-}
 
 export interface EmailAttachment {
   id: string;
@@ -191,16 +182,6 @@ class DocumentService {
     }
   }
 
-  // Email Management
-  async getEmailTemplates(): Promise<EmailTemplate[]> {
-    try {
-      const response = await apiService.request<ApiResponse<EmailTemplate[]>>('/email-templates');
-      return response.success && response.data ? response.data : [];
-    } catch (error) {
-      console.error('Error fetching email templates:', error);
-      return [];
-    }
-  }
 
   async sendEmails(emailJobs: Omit<EmailJob, 'id' | 'status' | 'createdAt' | 'sentBy'>[]): Promise<EmailJob[]> {
     const response = await apiService.sendEmail({

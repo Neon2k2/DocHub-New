@@ -7,7 +7,7 @@ import { EmailStatusTracker } from './EmailStatusTracker';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useAuth } from '../../contexts/AuthContext';
 import { tabService, DynamicTab } from '../../services/tab.service';
-import { useDocumentRequests } from '../../hooks/useDocumentRequests';
+import { apiService } from '../../services/api.service';
 
 export function ERDashboard() {
   const { stats, loading, error, refetch } = useDashboard('er');
@@ -15,6 +15,7 @@ export function ERDashboard() {
   const [dynamicTabs, setDynamicTabs] = useState<DynamicTab[]>([]);
   const [tabsLoading, setTabsLoading] = useState(true);
   const [tabsError, setTabsError] = useState<string | null>(null);
+  const [tabRequests, setTabRequests] = useState<Record<string, any[]>>({});
 
   // Load dynamic tabs
   useEffect(() => {
@@ -34,6 +35,44 @@ export function ERDashboard() {
 
     loadTabs();
   }, []);
+
+  // Load document requests for each tab
+  useEffect(() => {
+    const loadTabRequests = async () => {
+      if (dynamicTabs.length === 0) return;
+
+      const requestsPromises = dynamicTabs.map(async (tab) => {
+        try {
+          const response = await apiService.getDocumentRequests({
+            documentType: tab.letterType,
+            page: 1,
+            limit: 1000
+          });
+          
+          if (response.success && response.data) {
+            const mappedRequests = (response.data.items || []).map((request: any) => ({
+              ...request,
+              employeeName: request.employee?.name || 'Unknown Employee'
+            }));
+            return { tabId: tab.id, requests: mappedRequests };
+          }
+          return { tabId: tab.id, requests: [] };
+        } catch (err) {
+          console.error(`Error fetching requests for tab ${tab.id}:`, err);
+          return { tabId: tab.id, requests: [] };
+        }
+      });
+
+      const results = await Promise.all(requestsPromises);
+      const requestsMap: Record<string, any[]> = {};
+      results.forEach(({ tabId, requests }) => {
+        requestsMap[tabId] = requests;
+      });
+      setTabRequests(requestsMap);
+    };
+
+    loadTabRequests();
+  }, [dynamicTabs]);
 
   if (loading) {
     return (
@@ -85,41 +124,49 @@ export function ERDashboard() {
     );
   }
 
-  // Create dynamic stat cards from tabs
-  const statCards = [
+  // Create main stat cards
+  const mainStatCards = [
     {
-      title: 'Total Employees',
-      value: stats?.totalEmployees || 0,
+      title: 'Total Users',
+      value: stats?.totalUsers || 0,
       icon: <Users className="h-4 w-4" />,
-      description: 'Active workforce',
-      trend: '+2.5%',
+      description: 'Registered users',
       color: 'text-blue-400'
     },
     {
-      title: 'Active Employees',
-      value: stats?.activeEmployees || 0,
-      icon: <User className="h-4 w-4" />,
-      description: 'Currently employed',
-      trend: '+1.2%',
+      title: 'System Uptime',
+      value: `${stats?.systemUptime || 0}%`,
+      icon: <TrendingUp className="h-4 w-4" />,
+      description: 'System availability',
       color: 'text-green-400'
     },
-    // Dynamic tabs will be added here
-    ...dynamicTabs.map((tab, index) => {
-      const { requests } = useDocumentRequests(tab.letterType);
-      const pendingCount = requests.filter(r => r.status === 'Pending').length;
-      const approvedCount = requests.filter(r => r.status === 'Approved').length;
-      
-      return {
-        title: tab.name,
-        value: requests.length,
-        icon: <FileText className="h-4 w-4" />,
-        description: `${pendingCount} pending, ${approvedCount} approved`,
-        trend: pendingCount > 0 ? `${pendingCount} pending` : 'All caught up',
-        color: index % 2 === 0 ? 'text-orange-400' : 'text-purple-400',
-        tabId: tab.id
-      };
-    })
+    {
+      title: 'Active Sessions',
+      value: stats?.activeSessions || 0,
+      icon: <Clock className="h-4 w-4" />,
+      description: 'Last 24 hours',
+      color: 'text-purple-400'
+    }
   ];
+
+  // Create dynamic stat cards from tabs
+  const dynamicStatCards = dynamicTabs.map((tab, index) => {
+    const requests = tabRequests[tab.id] || [];
+    const pendingCount = requests.filter(r => r.status === 'Pending').length;
+    const approvedCount = requests.filter(r => r.status === 'Approved').length;
+    
+    return {
+      title: tab.name,
+      value: requests.length,
+      icon: <FileText className="h-4 w-4" />,
+      description: `${pendingCount} pending, ${approvedCount} approved`,
+      trend: pendingCount > 0 ? `${pendingCount} pending` : 'All caught up',
+      color: index % 2 === 0 ? 'text-orange-400' : 'text-purple-400',
+      tabId: tab.id
+    };
+  });
+
+  const statCards = [...mainStatCards, ...dynamicStatCards];
 
   const monthlyStats = [
     {
@@ -193,7 +240,9 @@ export function ERDashboard() {
               </div>
               <div className="mt-4">
                 <p className="text-xs text-muted-foreground">{stat.description}</p>
-                <p className="text-xs text-green-400">{stat.trend}</p>
+                {stat.trend && (
+                  <p className="text-xs text-green-400">{stat.trend}</p>
+                )}
               </div>
             </CardContent>
           </Card>

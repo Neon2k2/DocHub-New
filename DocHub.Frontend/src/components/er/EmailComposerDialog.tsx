@@ -12,7 +12,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Label } from '../ui/label';
 import { Progress } from '../ui/progress';
-import { documentService, EmailTemplate, EmailJob, EmailAttachment, Signature } from '../../services/document.service';
+import { documentService, EmailJob, EmailAttachment, Signature } from '../../services/document.service';
 import { Employee, apiService } from '../../services/api.service';
 
 interface EmailComposerDialogProps {
@@ -35,7 +35,7 @@ export function EmailComposerDialog({
   employees,
   onEmailsSent
 }: EmailComposerDialogProps) {
-  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [selectedSignatureId, setSelectedSignatureId] = useState<string>('');
@@ -58,10 +58,10 @@ export function EmailComposerDialog({
   const loadTemplatesAndSignatures = async () => {
     try {
       const [templates, sigs] = await Promise.all([
-        documentService.getEmailTemplates(),
+        documentService.getTemplates(),
         documentService.getSignatures()
       ]);
-      setEmailTemplates(templates);
+      setTemplates(templates);
       setSignatures(sigs);
       
       if (templates.length > 0) {
@@ -87,7 +87,7 @@ export function EmailComposerDialog({
 
   const handleTemplateSelect = (templateId: string) => {
     setSelectedTemplateId(templateId);
-    const template = emailTemplates.find(t => t.id === templateId);
+    const template = templates.find(t => t.id === templateId);
     
     if (template) {
       const updatedData = emailData.map(data => ({
@@ -217,7 +217,7 @@ export function EmailComposerDialog({
   };
 
   const currentEmployeeData = emailData[currentEmployeeIndex];
-  const selectedTemplate = emailTemplates.find(t => t.id === selectedTemplateId);
+  const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
   const selectedSignature = signatures.find(s => s.id === selectedSignatureId);
 
   const formatFileSize = (bytes: number) => {
@@ -265,7 +265,7 @@ export function EmailComposerDialog({
                         <SelectValue placeholder="Select template" />
                       </SelectTrigger>
                       <SelectContent>
-                        {emailTemplates.map(template => (
+                        {templates.map(template => (
                           <SelectItem key={template.id} value={template.id}>
                             {template.name}
                           </SelectItem>

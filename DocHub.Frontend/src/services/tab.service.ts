@@ -6,6 +6,7 @@ export interface DynamicTab {
   description: string;
   letterType: string;
   isActive: boolean;
+  department: string; // ER or Billing
   createdAt: string; // API returns as string
   updatedAt: string; // API returns as string
   fieldConfiguration?: string; // JSON string containing field definitions
@@ -515,6 +516,32 @@ class TabService {
         resolve(newSignature);
       }, 500);
     });
+  }
+
+  /**
+   * Get tabs filtered by department
+   */
+  async getTabsByDepartment(department: string): Promise<DynamicTab[]> {
+    try {
+      const tabs = await this.getAllTabs();
+      return tabs.filter(tab => tab.department === department);
+    } catch (error) {
+      console.error('Failed to get tabs by department:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get active tabs filtered by department
+   */
+  async getActiveTabsByDepartment(department: string): Promise<DynamicTab[]> {
+    try {
+      const tabs = await this.getActiveTabs();
+      return tabs.filter(tab => tab.department === department);
+    } catch (error) {
+      console.error('Failed to get active tabs by department:', error);
+      return [];
+    }
   }
 }
 

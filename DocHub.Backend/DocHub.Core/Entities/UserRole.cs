@@ -17,11 +17,20 @@ public class UserRole
 
     public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
 
+    public DateTime? ExpiresAt { get; set; }
+
+    public Guid? AssignedBy { get; set; }
+
+    public bool IsExpired => ExpiresAt.HasValue && DateTime.UtcNow > ExpiresAt.Value;
+
     // Navigation properties
     [ForeignKey("UserId")]
     public virtual User User { get; set; } = null!;
 
     [ForeignKey("RoleId")]
     public virtual Role Role { get; set; } = null!;
+
+    [ForeignKey("AssignedBy")]
+    public virtual User? AssignedByUser { get; set; }
 }
 

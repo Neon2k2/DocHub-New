@@ -15,11 +15,14 @@ public interface IDbContext
     DbSet<Signature> Signatures { get; }
     DbSet<ExcelUpload> ExcelUploads { get; }
     DbSet<GeneratedDocument> GeneratedDocuments { get; }
-    DbSet<EmailTemplate> EmailTemplates { get; }
     DbSet<EmailJob> EmailJobs { get; }
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<WebhookEvent> WebhookEvents { get; }
     DbSet<TableSchema> TableSchemas { get; }
+    DbSet<UserSession> UserSessions { get; }
+    DbSet<RefreshToken> RefreshTokens { get; }
+    DbSet<Permission> Permissions { get; }
+    DbSet<RolePermission> RolePermissions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default);

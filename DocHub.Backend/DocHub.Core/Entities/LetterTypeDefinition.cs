@@ -24,6 +24,10 @@ public class LetterTypeDefinition
     [MaxLength(20)]
     public string DataSourceType { get; set; } = string.Empty; // "Database" or "Excel"
 
+    [Required]
+    [MaxLength(20)]
+    public string Department { get; set; } = string.Empty; // "ER" or "Billing"
+
     [Column(TypeName = "nvarchar(max)")]
     public string? FieldConfiguration { get; set; } // JSON
 

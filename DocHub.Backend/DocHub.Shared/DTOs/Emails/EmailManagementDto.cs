@@ -12,7 +12,6 @@ public class SendEmailRequest
     public Guid ExcelUploadId { get; set; }
 
     public Guid? DocumentId { get; set; }
-    public Guid? EmailTemplateId { get; set; }
 
     [Required]
     [MaxLength(255)]
@@ -40,7 +39,6 @@ public class SendBulkEmailsRequest
     [Required]
     public List<Guid> ExcelUploadIds { get; set; } = new List<Guid>();
 
-    public Guid? EmailTemplateId { get; set; }
 
     [Required]
     [MaxLength(255)]
@@ -53,34 +51,6 @@ public class SendBulkEmailsRequest
     public string? TrackingOptions { get; set; } // JSON
 }
 
-public class CreateEmailTemplateRequest
-{
-    [Required]
-    [MaxLength(100)]
-    public string Name { get; set; } = string.Empty;
-
-    [Required]
-    [MaxLength(255)]
-    public string Subject { get; set; } = string.Empty;
-
-    [Required]
-    public string Content { get; set; } = string.Empty;
-
-    public string? Placeholders { get; set; } // JSON
-}
-
-public class UpdateEmailTemplateRequest
-{
-    [MaxLength(100)]
-    public string? Name { get; set; }
-
-    [MaxLength(255)]
-    public string? Subject { get; set; }
-
-    public string? Content { get; set; }
-    public string? Placeholders { get; set; } // JSON
-    public bool? IsActive { get; set; }
-}
 
 public class GetEmailJobsRequest
 {
@@ -112,11 +82,6 @@ public class EmailJobDto
     [JsonPropertyName("documentName")]
     public string? DocumentName { get; set; }
 
-    [JsonPropertyName("emailTemplateId")]
-    public Guid? EmailTemplateId { get; set; }
-
-    [JsonPropertyName("emailTemplateName")]
-    public string? EmailTemplateName { get; set; }
 
     [JsonPropertyName("subject")]
     public string Subject { get; set; } = string.Empty;
@@ -175,17 +140,6 @@ public class EmailJobDto
     public DateTime UpdatedAt { get; set; }
 }
 
-public class EmailTemplateDto
-{
-    public Guid Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Subject { get; set; } = string.Empty;
-    public string Content { get; set; } = string.Empty;
-    public string? Placeholders { get; set; }
-    public bool IsActive { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-}
 
 public class EmailStatusUpdate
 {

@@ -1058,7 +1058,7 @@ class ApiService {
     });
   }
 
-  async getEmailHistory(tabId: string, page: number = 1, pageSize: number = 10): Promise<ApiResponse<EmailJob[]>> {
+  async getTabEmailHistory(tabId: string, page: number = 1, pageSize: number = 10): Promise<ApiResponse<EmailJob[]>> {
     return this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
   }
 
@@ -1096,90 +1096,65 @@ class ApiService {
     }
   }
 
+  async getDocumentRequests(params?: {
+    documentType?: string;
+    status?: string;
+    employeeId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<{ items: DocumentRequest[]; totalCount: number; page: number; pageSize: number; totalPages: number }>> {
+    const queryParams = new URLSearchParams();
+    if (params?.documentType) queryParams.append('documentType', params.documentType);
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.employeeId) queryParams.append('employeeId', params.employeeId);
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    
+    const queryString = queryParams.toString();
+    const url = `/dashboard/document-requests${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request<ApiResponse<{ items: DocumentRequest[]; totalCount: number; page: number; pageSize: number; totalPages: number }>>(url);
+  }
+
   async getDocumentRequest(id: string): Promise<ApiResponse<DocumentRequest>> {
-    return this.request<ApiResponse<DocumentRequest>>(`/documentrequests/${id}`);
+    // For now, get from the list - in a real implementation, you'd have a specific endpoint
+    const response = await this.getDocumentRequests({ limit: 1000 });
+    if (response.success && response.data) {
+      const document = response.data.items.find(d => d.id === id);
+      if (document) {
+        return { success: true, data: document };
+      }
+    }
+    return { success: false, error: { code: 'NOT_FOUND', message: 'Document request not found' } };
   }
 
   async createDocumentRequest(request: CreateDocumentRequestRequest): Promise<ApiResponse<DocumentRequest>> {
-    return this.request<ApiResponse<DocumentRequest>>('/documentrequests', {
+    // This would need to be implemented in the backend
+    return this.request<ApiResponse<DocumentRequest>>('/dashboard/document-requests', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   }
 
   async approveDocumentRequest(id: string, request: ApproveDocumentRequestRequest): Promise<ApiResponse<DocumentRequest>> {
-    return this.request<ApiResponse<DocumentRequest>>(`/documentrequests/${id}/approve`, {
+    // This would need to be implemented in the backend
+    return this.request<ApiResponse<DocumentRequest>>(`/dashboard/document-requests/${id}/approve`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
   }
 
   async generateDocumentRequest(id: string): Promise<ApiResponse<DocumentRequest>> {
-    return this.request<ApiResponse<DocumentRequest>>(`/documentrequests/${id}/generate`, {
+    // This would need to be implemented in the backend
+    return this.request<ApiResponse<DocumentRequest>>(`/dashboard/document-requests/${id}/generate`, {
       method: 'POST',
     });
   }
 
   async getDocumentRequestStats(): Promise<ApiResponse<DocumentRequestStats>> {
-    return this.request<ApiResponse<DocumentRequestStats>>('/documentrequests/stats');
+    return this.request<ApiResponse<DocumentRequestStats>>('/dashboard/document-requests/stats');
   }
 
-  // Email Template APIs
-  async getEmailTemplates(params?: {
-    page?: number;
-    limit?: number;
-    type?: string;
-    category?: string;
-    isActive?: boolean;
-    searchTerm?: string;
-  }): Promise<ApiResponse<PaginatedResponse<EmailTemplate>>> {
-    const queryParams = new URLSearchParams();
-    if (params?.page) queryParams.set('page', params.page.toString());
-    if (params?.limit) queryParams.set('limit', params.limit.toString());
-    if (params?.type) queryParams.set('type', params.type);
-    if (params?.category) queryParams.set('category', params.category);
-    if (params?.isActive !== undefined) queryParams.set('isActive', params.isActive.toString());
-    if (params?.searchTerm) queryParams.set('searchTerm', params.searchTerm);
-
-    return this.request<ApiResponse<PaginatedResponse<EmailTemplate>>>(`/email-templates?${queryParams}`);
-  }
-
-  async getEmailTemplate(id: string): Promise<ApiResponse<EmailTemplate>> {
-    return this.request<ApiResponse<EmailTemplate>>(`/email-templates/${id}`);
-  }
-
-  async createEmailTemplate(template: CreateEmailTemplateRequest): Promise<ApiResponse<EmailTemplate>> {
-    return this.request<ApiResponse<EmailTemplate>>('/email-templates', {
-      method: 'POST',
-      body: JSON.stringify(template),
-    });
-  }
-
-  async processEmailTemplate(id: string, data: Record<string, any>): Promise<ApiResponse<ProcessedEmailTemplate>> {
-    return this.request<ApiResponse<ProcessedEmailTemplate>>(`/email-templates/${id}/process`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async cloneEmailTemplate(id: string, request: CloneEmailTemplateRequest): Promise<ApiResponse<EmailTemplate>> {
-    return this.request<ApiResponse<EmailTemplate>>(`/email-templates/${id}/clone`, {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
-  }
-
-  async validateEmailTemplate(id: string): Promise<ApiResponse<EmailTemplateValidation>> {
-    return this.request<ApiResponse<EmailTemplateValidation>>(`/email-templates/${id}/validate`, {
-      method: 'POST',
-    });
-  }
-
-  async createDefaultEmailTemplates(): Promise<ApiResponse<string>> {
-    return this.request<ApiResponse<string>>('/email-templates/create-defaults', {
-      method: 'POST',
-    });
-  }
 
   // File Management APIs
   async getFileStorageStatistics(): Promise<ApiResponse<FileStorageStatistics>> {
@@ -1749,9 +1724,6 @@ class ApiService {
     });
   }
 
-  async getDynamicEmailTemplates(letterTypeDefinitionId: string): Promise<ApiResponse<{ id: string; name: string; description: string; subject: string; body: string; htmlBody: string; isDefault: boolean; createdAt: string; updatedAt: string }[]>> {
-    return this.request<ApiResponse<{ id: string; name: string; description: string; subject: string; body: string; htmlBody: string; isDefault: boolean; createdAt: string; updatedAt: string }[]>>(`/api/DynamicEmail/templates/${letterTypeDefinitionId}`);
-  }
 
   async getEmailHistory(letterTypeDefinitionId: string, pageNumber: number = 1, pageSize: number = 10): Promise<ApiResponse<{ items: EmailJob[]; totalCount: number; pageNumber: number; pageSize: number }>> {
     return this.request<ApiResponse<{ items: EmailJob[]; totalCount: number; pageNumber: number; pageSize: number }>>(`/api/DynamicEmail/history/${letterTypeDefinitionId}?pageNumber=${pageNumber}&pageSize=${pageSize}`);
@@ -1788,6 +1760,146 @@ class ApiService {
 
   async getWebhookEvents(emailJobId: string): Promise<ApiResponse<{ id: string; eventType: string; timestamp: string; userAgent?: string; ipAddress?: string; url?: string; reason?: string; data?: string }[]>> {
     return this.request<ApiResponse<{ id: string; eventType: string; timestamp: string; userAgent?: string; ipAddress?: string; url?: string; reason?: string; data?: string }[]>>(`/dynamic-webhooks/events/${emailJobId}`);
+  }
+
+  // User Management APIs
+  async getUsers(): Promise<ApiResponse<UserDto[]>> {
+    return this.request<ApiResponse<UserDto[]>>('/api/usermanagement/users');
+  }
+
+  async getUserById(id: string): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>(`/api/usermanagement/users/${id}`);
+  }
+
+  async createUser(user: CreateUserRequest): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>('/api/usermanagement/users', {
+      method: 'POST',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async updateUser(id: string, user: UpdateUserRequest): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>(`/api/usermanagement/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async deleteUser(id: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resetUserPassword(id: string, request: ResetPasswordRequest): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async toggleUserStatus(id: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/toggle-status`, {
+      method: 'POST',
+    });
+  }
+
+  async lockUserAccount(id: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/lock`, {
+      method: 'POST',
+    });
+  }
+
+  async unlockUserAccount(id: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/unlock`, {
+      method: 'POST',
+    });
+  }
+
+  async validatePassword(request: { password: string; username: string; email: string }): Promise<ApiResponse<PasswordValidationResult>> {
+    return this.request<ApiResponse<PasswordValidationResult>>('/api/usermanagement/validate-password', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getPasswordRequirements(): Promise<ApiResponse<{ minLength: number; requireUppercase: boolean; requireLowercase: boolean; requireDigit: boolean; requireSpecialChar: boolean; }>> {
+    return this.request<ApiResponse<{ minLength: number; requireUppercase: boolean; requireLowercase: boolean; requireDigit: boolean; requireSpecialChar: boolean; }>>('/api/usermanagement/password-requirements');
+  }
+
+  async checkPasswordExpiry(request: { userId: string }): Promise<ApiResponse<PasswordExpiryInfo>> {
+    return this.request<ApiResponse<PasswordExpiryInfo>>('/api/usermanagement/check-password-expiry', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  // Session Management APIs
+  async getUserSessions(userId: string): Promise<ApiResponse<UserSessionDto[]>> {
+    return this.request<ApiResponse<UserSessionDto[]>>(`/api/sessionmanagement/users/${userId}/sessions`);
+  }
+
+  async terminateSession(sessionId: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/sessionmanagement/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async terminateAllUserSessions(userId: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/sessionmanagement/users/${userId}/sessions`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Role Management APIs
+  async getRoles(): Promise<ApiResponse<RoleDto[]>> {
+    return this.request<ApiResponse<RoleDto[]>>('/api/rolemanagement/roles');
+  }
+
+  async getRoleById(id: string): Promise<ApiResponse<RoleDto>> {
+    return this.request<ApiResponse<RoleDto>>(`/api/rolemanagement/roles/${id}`);
+  }
+
+  async createRole(role: { name: string; description?: string; permissionIds: string[] }): Promise<ApiResponse<RoleDto>> {
+    return this.request<ApiResponse<RoleDto>>('/api/rolemanagement/roles', {
+      method: 'POST',
+      body: JSON.stringify(role),
+    });
+  }
+
+  async updateRole(id: string, role: { name?: string; description?: string; isActive?: boolean; permissionIds?: string[] }): Promise<ApiResponse<RoleDto>> {
+    return this.request<ApiResponse<RoleDto>>(`/api/rolemanagement/roles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(role),
+    });
+  }
+
+  async deleteRole(id: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>(`/api/rolemanagement/roles/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getPermissions(): Promise<ApiResponse<PermissionDto[]>> {
+    return this.request<ApiResponse<PermissionDto[]>>('/api/rolemanagement/permissions');
+  }
+
+  async assignUserToRole(userId: string, roleId: string, expiresAt?: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>('/api/rolemanagement/assign-user-role', {
+      method: 'POST',
+      body: JSON.stringify({ userId, roleId, expiresAt }),
+    });
+  }
+
+  async removeUserFromRole(userId: string, roleId: string): Promise<ApiResponse<void>> {
+    return this.request<ApiResponse<void>>('/api/rolemanagement/remove-user-role', {
+      method: 'POST',
+      body: JSON.stringify({ userId, roleId }),
+    });
+  }
+
+  async getUserRoles(userId: string): Promise<ApiResponse<RoleDto[]>> {
+    return this.request<ApiResponse<RoleDto[]>>(`/api/rolemanagement/users/${userId}/roles`);
   }
 }
 
@@ -1893,8 +2005,10 @@ export interface CreateEmployeeRequest {
 
 
 export interface DashboardStats {
-  totalEmployees?: number;
-  activeEmployees?: number;
+  totalUsers?: number;
+  activeUsers?: number;
+  systemUptime?: number;
+  activeSessions?: number;
   newJoiningsThisMonth?: number;
   relievedThisMonth?: number;
   totalProjects?: number;
@@ -1997,6 +2111,7 @@ export interface DynamicTab {
   description: string;
   letterType: string;
   isActive: boolean;
+  department: string; // ER or Billing
   templates: TabTemplate[];
   signatures: TabSignature[];
   createdAt: string; // API returns as string
@@ -2098,53 +2213,6 @@ export interface DocumentRequestStats {
   requestsByStatus: { [key: string]: number };
 }
 
-// Email Template Types
-export interface EmailTemplate {
-  id: string;
-  name: string;
-  subject: string;
-  body: string;
-  htmlBody: string;
-  type: string;
-  category: string;
-  placeholders: string[];
-  isActive: boolean;
-  isDefault: boolean;
-  description?: string;
-  createdBy: string;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateEmailTemplateRequest {
-  name: string;
-  subject: string;
-  body: string;
-  htmlBody: string;
-  type: string;
-  category: string;
-  placeholders: string[];
-  isActive: boolean;
-  description?: string;
-}
-
-export interface ProcessedEmailTemplate {
-  subject: string;
-  body: string;
-  htmlBody: string;
-}
-
-export interface CloneEmailTemplateRequest {
-  newName: string;
-}
-
-export interface EmailTemplateValidation {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-  undeclaredPlaceholders: string[];
-}
 
 // File Management Types
 export interface FileStorageStatistics {
@@ -2443,6 +2511,116 @@ export interface EmailAttachmentRequest {
   fileName: string;
   mimeType: string;
   content: string;
+}
+
+// User Management Interfaces
+export interface UserDto {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  department: string;
+  employeeId?: string;
+  jobTitle?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  isActive: boolean;
+  isEmailVerified: boolean;
+  isPhoneVerified: boolean;
+  lastLoginAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  roles: string[];
+}
+
+export interface CreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  department: string;
+  employeeId?: string;
+  jobTitle?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  roleIds: string[];
+}
+
+export interface UpdateUserRequest {
+  username?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
+  department?: string;
+  employeeId?: string;
+  jobTitle?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  isActive?: boolean;
+  roleIds?: string[];
+}
+
+export interface ResetPasswordRequest {
+  newPassword: string;
+}
+
+export interface UserSessionDto {
+  id: string;
+  userId: string;
+  sessionToken: string;
+  loginTime: string;
+  lastActivityAt: string;
+  ipAddress?: string;
+  userAgent?: string;
+  isActive: boolean;
+  expiresAt: string;
+}
+
+export interface RoleDto {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  isSystemRole: boolean;
+  createdAt: string;
+  updatedAt: string;
+  permissions: string[];
+}
+
+export interface PermissionDto {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PasswordValidationResult {
+  isValid: boolean;
+  errors: string[];
+  strength: 'weak' | 'medium' | 'strong';
+}
+
+export interface PasswordExpiryInfo {
+  isExpired: boolean;
+  daysUntilExpiry: number;
+  lastChanged: string;
 }
 
 // Export singleton instance

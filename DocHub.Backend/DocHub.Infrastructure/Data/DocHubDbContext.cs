@@ -20,11 +20,14 @@ public class DocHubDbContext : DbContext, IDbContext
     public DbSet<Signature> Signatures => Set<Signature>();
     public DbSet<ExcelUpload> ExcelUploads => Set<ExcelUpload>();
     public DbSet<GeneratedDocument> GeneratedDocuments => Set<GeneratedDocument>();
-    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<EmailJob> EmailJobs => Set<EmailJob>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
     public DbSet<TableSchema> TableSchemas => Set<TableSchema>();
+    public DbSet<UserSession> UserSessions => Set<UserSession>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Permission> Permissions => Set<Permission>();
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -172,13 +175,6 @@ public class DocHubDbContext : DbContext, IDbContext
             entity.Property(e => e.GeneratedAt).HasDefaultValueSql("GETUTCDATE()");
         });
 
-        // Configure EmailTemplate entity
-        modelBuilder.Entity<EmailTemplate>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
-        });
 
         // Configure EmailJob entity
         modelBuilder.Entity<EmailJob>(entity =>
@@ -195,10 +191,6 @@ public class DocHubDbContext : DbContext, IDbContext
             entity.HasOne(e => e.Document)
                 .WithMany(e => e.EmailJobs)
                 .HasForeignKey(e => e.DocumentId)
-                .OnDelete(DeleteBehavior.SetNull);
-            entity.HasOne(e => e.EmailTemplate)
-                .WithMany(e => e.EmailJobs)
-                .HasForeignKey(e => e.EmailTemplateId)
                 .OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.SentByUser)
                 .WithMany(e => e.EmailJobs)
@@ -241,6 +233,80 @@ public class DocHubDbContext : DbContext, IDbContext
                 .OnDelete(DeleteBehavior.Cascade);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+        });
+
+        // Configure UserSession entity
+        modelBuilder.Entity<UserSession>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.User)
+                .WithMany(e => e.UserSessions)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.Property(e => e.LastActivityAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => e.SessionToken).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.IpAddress);
+        });
+
+        // Configure RefreshToken entity
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.User)
+                .WithMany(e => e.RefreshTokens)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => e.UserId);
+        });
+
+        // Configure Permission entity
+        modelBuilder.Entity<Permission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => e.Name).IsUnique();
+            entity.HasIndex(e => e.Category);
+        });
+
+        // Configure RolePermission entity
+        modelBuilder.Entity<RolePermission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Role)
+                .WithMany(e => e.RolePermissions)
+                .HasForeignKey(e => e.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Permission)
+                .WithMany(e => e.RolePermissions)
+                .HasForeignKey(e => e.PermissionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
+        });
+
+        // Update UserRole entity configuration
+        modelBuilder.Entity<UserRole>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.User)
+                .WithMany(e => e.UserRoles)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Role)
+                .WithMany(e => e.UserRoles)
+                .HasForeignKey(e => e.RoleId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.AssignedBy)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(e => e.AssignedAt).HasDefaultValueSql("GETUTCDATE()");
+            entity.HasIndex(e => new { e.UserId, e.RoleId }).IsUnique();
         });
     }
 }

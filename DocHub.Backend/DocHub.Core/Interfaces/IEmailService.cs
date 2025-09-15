@@ -11,15 +11,7 @@ public interface IEmailService
     Task<EmailJobDto> GetEmailStatusAsync(Guid jobId);
     Task<IEnumerable<EmailJobDto>> GetEmailJobsAsync(GetEmailJobsRequest request, string userId);
 
-    // Email Template Management
-    Task<EmailTemplateDto> CreateEmailTemplateAsync(CreateEmailTemplateRequest request, string userId);
-    Task<EmailTemplateDto> UpdateEmailTemplateAsync(Guid id, UpdateEmailTemplateRequest request, string userId);
-    Task DeleteEmailTemplateAsync(Guid id, string userId);
-    Task<IEnumerable<EmailTemplateDto>> GetEmailTemplatesAsync(Guid? moduleId = null);
-    Task<EmailTemplateDto> GetEmailTemplateAsync(Guid id);
-
     // Email Processing
-    Task<EmailJobDto> ProcessEmailTemplateAsync(Guid templateId, object data);
     Task<string> RenderEmailContentAsync(string template, object data);
     Task<bool> ValidateEmailAddressAsync(string email);
 

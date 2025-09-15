@@ -35,11 +35,11 @@ export function useDocumentRequests(documentType?: string): UseDocumentRequestsR
         // Map the API response to include employeeName
         const mappedRequests: DocumentRequestWithEmployee[] = (response.data.items || []).map(request => ({
           ...request,
-          employeeName: request.employee?.name || 'Unknown Employee'
+          employeeName: request.employeeName || 'Unknown Employee'
         }));
         setRequests(mappedRequests);
       } else {
-        setError(response.message || 'Failed to fetch document requests');
+        setError(response.error?.message || 'Failed to fetch document requests');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

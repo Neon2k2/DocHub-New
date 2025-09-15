@@ -12,6 +12,7 @@ export interface UserRole {
   name: string;
   email: string;
   role: 'admin' | 'er' | 'billing';
+  department: string; // ER or Billing
   permissions: {
     canAccessER: boolean;
     canAccessBilling: boolean;

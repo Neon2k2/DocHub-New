@@ -25,10 +25,11 @@ public class TabController : ControllerBase
     private readonly IRepository<TableSchema> _tableSchemaRepository;
     private readonly IDbContext _dbContext;
     private readonly IEmailService _emailService;
+    private readonly IDepartmentAccessService _departmentAccessService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<TabController> _logger;
 
-    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IConfiguration configuration, ILogger<TabController> logger)
+    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IDepartmentAccessService departmentAccessService, IConfiguration configuration, ILogger<TabController> logger)
     {
         _tabService = tabService;
         _letterGenerationService = letterGenerationService;
@@ -36,6 +37,7 @@ public class TabController : ControllerBase
         _tableSchemaRepository = tableSchemaRepository;
         _dbContext = dbContext;
         _emailService = emailService;
+        _departmentAccessService = departmentAccessService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -47,8 +49,13 @@ public class TabController : ControllerBase
     {
         try
         {
+            var userId = GetCurrentUserId();
+            var accessibleTabIds = await _departmentAccessService.GetAccessibleTabIds(Guid.Parse(userId));
+            
             var letterTypes = await _tabService.GetLetterTypesAsync();
-            return Ok(ApiResponse<IEnumerable<LetterTypeDefinitionDto>>.SuccessResult(letterTypes));
+            var filteredLetterTypes = letterTypes.Where(lt => accessibleTabIds.Contains(lt.Id));
+            
+            return Ok(ApiResponse<IEnumerable<LetterTypeDefinitionDto>>.SuccessResult(filteredLetterTypes));
         }
         catch (Exception ex)
         {
@@ -62,6 +69,14 @@ public class TabController : ControllerBase
     {
         try
         {
+            var userId = GetCurrentUserId();
+            
+            // Check if user can access this tab
+            if (!await _departmentAccessService.UserCanAccessTab(Guid.Parse(userId), id))
+            {
+                return Forbid("You don't have access to this tab");
+            }
+
             var letterType = await _tabService.GetLetterTypeAsync(id);
             return Ok(ApiResponse<LetterTypeDefinitionDto>.SuccessResult(letterType));
         }
@@ -104,6 +119,12 @@ public class TabController : ControllerBase
                 frontendData.TypeKey, frontendData.DisplayName, frontendData.DataSourceType);
             
             _logger.LogInformation("🔧 [TAB-CREATE] Creating backend request object...");
+            
+            // Get current user's department
+            var currentUserId = GetCurrentUserId();
+            var user = await _dbContext.Users.FindAsync(Guid.Parse(currentUserId));
+            var userDepartment = user?.Department ?? "ER"; // Default to ER if not set
+            
             // Create request without module requirement
             var request = new CreateLetterTypeRequest
             {
@@ -111,6 +132,7 @@ public class TabController : ControllerBase
                 DisplayName = frontendData.DisplayName,
                 Description = frontendData.Description,
                 DataSourceType = frontendData.DataSourceType,
+                Department = userDepartment, // Set department based on current user
                 FieldConfiguration = frontendData.FieldConfiguration,
                 // ModuleId removed - no module dependency
             };

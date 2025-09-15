@@ -27,6 +27,9 @@ public class AuditLog
     [Column(TypeName = "nvarchar(max)")]
     public string? NewValues { get; set; } // JSON
 
+    [Column(TypeName = "nvarchar(max)")]
+    public string? Details { get; set; } // Additional details
+
     [MaxLength(45)]
     public string? IpAddress { get; set; }
 

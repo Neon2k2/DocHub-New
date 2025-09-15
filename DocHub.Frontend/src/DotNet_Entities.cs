@@ -612,38 +612,6 @@ namespace DocHub.Models
     // 9. Email & Notification Management
     // =============================================
 
-    public class EmailTemplate
-    {
-        [Key]
-        public string Id { get; set; } = Guid.NewGuid().ToString();
-        
-        [Required]
-        [StringLength(100)]
-        public string Name { get; set; }
-        
-        [Required]
-        [StringLength(200)]
-        public string Subject { get; set; }
-        
-        [Required]
-        public string Body { get; set; }
-        
-        [Required]
-        [StringLength(50)]
-        public string Category { get; set; }
-        
-        public bool IsActive { get; set; } = true;
-        
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-        
-        public string CreatedBy { get; set; }
-        
-        // Navigation Properties
-        [ForeignKey("CreatedBy")]
-        public virtual User CreatedByUser { get; set; }
-    }
 
     public class EmailLog
     {
@@ -719,7 +687,6 @@ namespace DocHub.Data
         public DbSet<SystemSetting> SystemSettings { get; set; }
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<FileUpload> FileUploads { get; set; }
-        public DbSet<EmailTemplate> EmailTemplates { get; set; }
         public DbSet<EmailLog> EmailLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -799,5 +766,186 @@ namespace DocHub.Data
                 }
             );
         }
+    }
+
+    // =============================================
+    // 8. User Management & Session Management
+    // =============================================
+
+    public class UserSession
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        public string UserId { get; set; }
+        
+        [Required]
+        [StringLength(500)]
+        public string SessionToken { get; set; }
+        
+        public DateTime LoginTime { get; set; } = DateTime.UtcNow;
+        
+        public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
+        
+        [StringLength(45)]
+        public string? IpAddress { get; set; }
+        
+        [StringLength(500)]
+        public string? UserAgent { get; set; }
+        
+        public bool IsActive { get; set; } = true;
+        
+        public DateTime ExpiresAt { get; set; }
+        
+        // Navigation Properties
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
+    }
+
+    public class RefreshToken
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        public string UserId { get; set; }
+        
+        [Required]
+        [StringLength(500)]
+        public string Token { get; set; }
+        
+        public DateTime ExpiresAt { get; set; }
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        
+        public DateTime? RevokedAt { get; set; }
+        
+        [StringLength(500)]
+        public string? ReplacedByToken { get; set; }
+        
+        [StringLength(100)]
+        public string? ReasonRevoked { get; set; }
+        
+        // Navigation Properties
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
+    }
+
+    public class Permission
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        [StringLength(100)]
+        public string Name { get; set; }
+        
+        [StringLength(255)]
+        public string? Description { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string Category { get; set; }
+        
+        public bool IsActive { get; set; } = true;
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        
+        // Navigation Properties
+        public virtual ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+    }
+
+    public class RolePermission
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        public string RoleId { get; set; }
+        
+        [Required]
+        public string PermissionId { get; set; }
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        
+        // Navigation Properties
+        [ForeignKey("RoleId")]
+        public virtual Role Role { get; set; }
+        
+        [ForeignKey("PermissionId")]
+        public virtual Permission Permission { get; set; }
+    }
+
+    public class UserRole
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        public string UserId { get; set; }
+        
+        [Required]
+        public string RoleId { get; set; }
+        
+        public DateTime? ExpiresAt { get; set; }
+        
+        public string? AssignedBy { get; set; }
+        
+        public bool IsExpired { get; set; } = false;
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        
+        // Navigation Properties
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
+        
+        [ForeignKey("RoleId")]
+        public virtual Role Role { get; set; }
+        
+        [ForeignKey("AssignedBy")]
+        public virtual User? AssignedByUser { get; set; }
+    }
+
+    public class AuditLog
+    {
+        [Key]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+        [Required]
+        [StringLength(100)]
+        public string EntityName { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string Action { get; set; }
+        
+        [Required]
+        public string EntityId { get; set; }
+        
+        [StringLength(100)]
+        public string? UserId { get; set; }
+        
+        [StringLength(100)]
+        public string? UserName { get; set; }
+        
+        [StringLength(45)]
+        public string? IpAddress { get; set; }
+        
+        [StringLength(500)]
+        public string? UserAgent { get; set; }
+        
+        [Column(TypeName = "nvarchar(max)")]
+        public string? OldValues { get; set; } // JSON
+        
+        [Column(TypeName = "nvarchar(max)")]
+        public string? NewValues { get; set; } // JSON
+        
+        [Column(TypeName = "nvarchar(max)")]
+        public string? Details { get; set; } // Additional details
+        
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 }

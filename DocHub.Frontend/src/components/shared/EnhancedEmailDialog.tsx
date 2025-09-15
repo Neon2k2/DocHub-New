@@ -12,7 +12,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Label } from '../ui/label';
 import { Progress } from '../ui/progress';
-import { documentService, EmailTemplate, EmailJob, EmailAttachment, Signature, DocumentTemplate } from '../../services/document.service';
+import { documentService, EmailJob, EmailAttachment, Signature, DocumentTemplate } from '../../services/document.service';
 import { Employee, apiService, EmailAttachmentRequest } from '../../services/api.service';
 import { toast } from 'sonner';
 
@@ -50,7 +50,7 @@ export function EnhancedEmailDialog({
   tabId,
   onEmailsSent
 }: EnhancedEmailDialogProps) {
-  const [emailTemplates, setEmailTemplates] = useState<DocumentTemplate[]>([]);
+  const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [emailData, setEmailData] = useState<EmployeeEmailData[]>([]);
   const [currentEmployeeIndex, setCurrentEmployeeIndex] = useState(0);
@@ -76,7 +76,7 @@ export function EnhancedEmailDialog({
         documentService.getTemplates(),
         documentService.getSignatures()
       ]);
-      setEmailTemplates(templates);
+      setTemplates(templates);
       setSignatures(sigs);
     } catch (error) {
       console.error('Failed to load templates and signatures:', error);
@@ -99,7 +99,7 @@ export function EnhancedEmailDialog({
   };
 
   const handleTemplateSelect = (templateId: string, employeeIndex: number) => {
-    const template = emailTemplates.find(t => t.id === templateId);
+    const template = templates.find(t => t.id === templateId);
     if (template) {
       const updatedData = [...emailData];
       updatedData[employeeIndex].selectedTemplate = template;
@@ -481,7 +481,7 @@ export function EnhancedEmailDialog({
                                 <SelectValue placeholder="Select template" />
                               </SelectTrigger>
                               <SelectContent>
-                                {emailTemplates.map(template => (
+                                {templates.map(template => (
                                   <SelectItem key={template.id} value={template.id}>
                                     {template.name}
                                   </SelectItem>

@@ -3,18 +3,22 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace DocHub.Core.Entities;
 
-[Table("Roles")]
-public class Role
+[Table("Permissions")]
+public class Permission
 {
     [Key]
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
-    [MaxLength(50)]
+    [MaxLength(100)]
     public string Name { get; set; } = string.Empty;
 
-    [MaxLength(255)]
+    [MaxLength(200)]
     public string? Description { get; set; }
+
+    [Required]
+    [MaxLength(50)]
+    public string Category { get; set; } = string.Empty;
 
     public bool IsActive { get; set; } = true;
 
@@ -22,10 +26,6 @@ public class Role
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-    public bool IsSystemRole { get; set; } = false;
-
     // Navigation properties
-    public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
     public virtual ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }
-

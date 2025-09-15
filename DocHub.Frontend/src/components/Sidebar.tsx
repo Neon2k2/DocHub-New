@@ -54,7 +54,9 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
       requestInProgress = true;
       
       try {
-        const tabs = await tabService.getTabs();
+        // Filter tabs by user's department
+        const userDepartment = currentUser.department || 'ER';
+        const tabs = await tabService.getTabsByDepartment(userDepartment);
         if (isMounted) {
           setDynamicTabs(tabs.filter(tab => tab.isActive));
           lastFetchTime = now;
@@ -109,6 +111,7 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
     erPages.push({ id: 'dynamic-letters', label: 'Tab Management', icon: Layers, isStatic: true, category: 'admin' });
     erPages.push({ id: 'tab-persistence', label: 'Tab Persistence', icon: HandHeart, isStatic: true, category: 'admin' });
     erPages.push({ id: 'user-management', label: 'User Management', icon: Users, isStatic: true, category: 'admin' });
+    erPages.push({ id: 'session-management', label: 'Session Management', icon: Eye, isStatic: true, category: 'admin' });
   }
 
   const pages = erPages; // Only ER module for now

@@ -17,7 +17,6 @@ public class EmailJob
 
     public Guid? DocumentId { get; set; }
 
-    public Guid? EmailTemplateId { get; set; }
 
     [Required]
     [MaxLength(255)]
@@ -94,8 +93,6 @@ public class EmailJob
     [ForeignKey("DocumentId")]
     public virtual GeneratedDocument? Document { get; set; }
 
-    [ForeignKey("EmailTemplateId")]
-    public virtual EmailTemplate? EmailTemplate { get; set; }
 
     [ForeignKey("SentBy")]
     public virtual User SentByUser { get; set; } = null!;

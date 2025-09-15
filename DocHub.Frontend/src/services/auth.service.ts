@@ -142,6 +142,7 @@ class AuthService {
           name: user.name || user.Name || `${user.firstName || user.FirstName || ''} ${user.lastName || user.LastName || ''}`.trim() || user.username || user.Username,
           email: user.email || user.Email,
           role: (user.role || user.Role)?.toLowerCase() as 'admin' | 'er' | 'billing' || 'admin',
+          department: user.department || user.Department || 'ER', // Default to ER if not specified
           permissions: {
             canAccessER: moduleAccess.includes('ER') || roles.includes('Admin') || moduleAccess.includes('Admin'),
             canAccessBilling: moduleAccess.includes('Billing') || roles.includes('Admin') || moduleAccess.includes('Admin'),

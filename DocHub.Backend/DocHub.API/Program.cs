@@ -41,6 +41,12 @@ builder.Services.AddScoped<IDynamicTableService, DynamicTableService>();
 builder.Services.AddScoped<IDynamicLetterGenerationService, DynamicLetterGenerationService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<ISignatureCleanupService, SignatureCleanupService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
+builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
+builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();
+builder.Services.AddScoped<IDepartmentAccessService, DepartmentAccessService>();
 
 // Database Initialization (Auto-migration and admin user creation)
 
