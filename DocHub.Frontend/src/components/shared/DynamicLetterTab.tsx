@@ -653,31 +653,19 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       {/* Action Tabs */}
       <div className="flex border-b border-gray-300 dark:border-gray-700">
         <button
-          onClick={handleGenerateLetters}
-          disabled={selectedEmployees.length === 0}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ color: '#374151' }}
-        >
-          <FileText className="h-4 w-4" style={{ color: '#374151' }} />
-          <span style={{ color: '#374151', fontWeight: '500' }}>Generate Letters</span>
-        </button>
-        
-        <button
           onClick={handleViewRequests}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-900 dark:text-white border-b-2 border-blue-500"
-          style={{ color: '#111827' }}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-900 dark:text-white border-b-2 border-blue-500 bg-gray-50 dark:bg-gray-800"
         >
-          <FileText className="h-4 w-4" style={{ color: '#111827' }} />
-          <span style={{ color: '#111827', fontWeight: '500' }}>View Requests</span>
+          <FileText className="h-4 w-4" />
+          <span className="font-medium">View Requests</span>
         </button>
         
         <button
           onClick={handleHistory}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600"
-          style={{ color: '#374151' }}
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
         >
-          <FileText className="h-4 w-4" style={{ color: '#374151' }} />
-          <span style={{ color: '#374151', fontWeight: '500' }}>History</span>
+          <FileText className="h-4 w-4" />
+          <span className="font-medium">History</span>
         </button>
       </div>
 
