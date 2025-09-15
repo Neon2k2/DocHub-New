@@ -68,6 +68,12 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     signaturesCount: 0
   });
   
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  
   // Fetch tab data for this tab
   const { data: tabData, loading: dataLoading, totalCount } = useTabData(tab.id);
   
@@ -307,6 +313,33 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       }
     });
   }, [excelData, tabData]);
+
+  // Filter employees based on search and filter criteria
+  const filteredEmployees = useMemo(() => {
+    return mappedEmployees.filter(emp => {
+      // Search filter
+      const matchesSearch = !searchQuery || 
+        emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.designation.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Department filter
+      const matchesDepartment = departmentFilter === 'all' || emp.department === departmentFilter;
+
+      // Status filter
+      const matchesStatus = statusFilter === 'all' || emp.status === statusFilter;
+
+      return matchesSearch && matchesDepartment && matchesStatus;
+    });
+  }, [mappedEmployees, searchQuery, departmentFilter, statusFilter]);
+
+  // Get unique departments for filter dropdown
+  const departments = useMemo(() => {
+    const deptSet = new Set(mappedEmployees.map(emp => emp.department).filter(Boolean));
+    return Array.from(deptSet).sort();
+  }, [mappedEmployees]);
 
   // Load statistics
   const loadStatistics = async () => {
@@ -770,18 +803,88 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             {/* Search and Filters */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1">
-                <Input
-                  placeholder="Search employees by name, ID, or department..."
-                  className="bg-white border-gray-300 text-gray-900 placeholder-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                />
+                  <Input
+                    placeholder="Search employees by name, ID, or department..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-white border-gray-300 text-gray-900 placeholder-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:placeholder-gray-400"
+                    style={{ 
+                      color: '#111827',
+                      '--tw-text-opacity': '1'
+                    } as React.CSSProperties}
+                  />
               </div>
               <Button
+                onClick={() => setShowFilters(!showFilters)}
                 variant="outline"
                 className="border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
               >
                 Filters
               </Button>
             </div>
+
+            {/* Filter Dropdowns */}
+            {showFilters && (
+              <div className="flex gap-4 mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex-1">
+                  <Label htmlFor="department-filter" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Department
+                  </Label>
+                  <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Departments</SelectItem>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label htmlFor="status-filter" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setDepartmentFilter('all');
+                      setStatusFilter('all');
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Results Counter */}
+          <div className="mb-3 text-sm text-gray-600 dark:text-gray-400">
+            Showing {filteredEmployees.length} of {mappedEmployees.length} employees
+            {(searchQuery || departmentFilter !== 'all' || statusFilter !== 'all') && (
+              <span className="ml-2 text-blue-600 dark:text-blue-400">
+                (filtered)
+              </span>
+            )}
           </div>
 
           {/* Dynamic Table */}
@@ -801,8 +904,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                     </tr>
                   </thead>
                 <tbody>
-                  {mappedEmployees.length > 0 ? (
-                    mappedEmployees.map((employee, index) => (
+                  {filteredEmployees.length > 0 ? (
+                    filteredEmployees.map((employee, index) => (
                       <tr key={employee.id} className="border-b border-gray-800 hover:bg-gray-800/50">
                         <td className="p-3">
                           <input
@@ -927,8 +1030,13 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                           <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
                             <div className="h-8 w-8 text-gray-600">👥</div>
                           </div>
-                          <p className="text-lg font-medium mb-2">0 employees found</p>
-                          <p className="text-sm">No employees found matching your criteria</p>
+                          <p className="text-lg font-medium mb-2">{filteredEmployees.length} employees found</p>
+                          <p className="text-sm">
+                            {searchQuery || departmentFilter !== 'all' || statusFilter !== 'all' 
+                              ? 'No employees found matching your criteria' 
+                              : 'No employees available'
+                            }
+                          </p>
                         </div>
                       </td>
                     </tr>
@@ -941,8 +1049,13 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
               <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
                 <div className="h-8 w-8 text-gray-600">👥</div>
               </div>
-              <p className="text-lg font-medium mb-2">0 employees found</p>
-              <p className="text-sm">No employees found matching your criteria</p>
+              <p className="text-lg font-medium mb-2">{filteredEmployees.length} employees found</p>
+              <p className="text-sm">
+                {searchQuery || departmentFilter !== 'all' || statusFilter !== 'all' 
+                  ? 'No employees found matching your criteria' 
+                  : 'No employees available'
+                }
+              </p>
             </div>
           )}
 

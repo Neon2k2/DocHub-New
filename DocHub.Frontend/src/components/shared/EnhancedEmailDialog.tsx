@@ -28,6 +28,7 @@ interface EmployeeEmailData {
   employee: Employee;
   subject: string;
   content: string;
+  cc: string;
   attachments: EmailAttachment[];
   selectedTemplate: DocumentTemplate | null;
   selectedSignature: Signature | null;
@@ -89,6 +90,7 @@ export function EnhancedEmailDialog({
       employee,
       subject: `Document Request - ${employee.name}`,
       content: `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`,
+      cc: '',
       attachments: [],
       selectedTemplate: null,
       selectedSignature: null,
@@ -331,6 +333,7 @@ export function EnhancedEmailDialog({
             signaturePath: data.selectedSignature?.id,
             subject: data.subject,
             content: data.content,
+            cc: data.cc,
             employeeData: data.employee.data || {},
             extraAttachments: resolvedAttachments
           });
@@ -397,7 +400,7 @@ export function EnhancedEmailDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="compose">Compose</TabsTrigger>
             <TabsTrigger value="preview">PDF Preview</TabsTrigger>
             <TabsTrigger value="sending" disabled={!sending && sentJobs.length === 0}>
@@ -589,6 +592,17 @@ export function EnhancedEmailDialog({
                           />
                         </div>
 
+                        {/* CC */}
+                        <div className="space-y-2">
+                          <Label htmlFor="cc">CC</Label>
+                          <Input
+                            id="cc"
+                            value={currentEmployeeData.cc}
+                            onChange={(e) => updateEmployeeEmail(currentEmployeeIndex, 'cc', e.target.value)}
+                            placeholder="CC recipients (comma-separated emails)"
+                          />
+                        </div>
+
                         {/* Content */}
                         <div className="space-y-2">
                           <Label htmlFor="content">Message</Label>
@@ -658,6 +672,12 @@ export function EnhancedEmailDialog({
                             <Label className="text-xs text-muted-foreground">Subject:</Label>
                             <p>{currentEmployeeData.subject}</p>
                           </div>
+                          {currentEmployeeData.cc && (
+                            <div className="col-span-2">
+                              <Label className="text-xs text-muted-foreground">CC:</Label>
+                              <p>{currentEmployeeData.cc}</p>
+                            </div>
+                          )}
                         </div>
                         
                         <Separator />

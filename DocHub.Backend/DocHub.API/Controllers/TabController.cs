@@ -807,7 +807,7 @@ public class TabController : ControllerBase
                throw new UnauthorizedAccessException("User ID not found in token");
     }
 
-    private async Task SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson)
+    private async Task SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson, string? ccEmails = null)
     {
         try
         {
@@ -875,6 +875,28 @@ public class TabController : ControllerBase
 
             message.AddTo(new SendGrid.Helpers.Mail.EmailAddress(toEmail, toName));
 
+            // Add CC recipients if provided
+            if (!string.IsNullOrEmpty(ccEmails))
+            {
+                var ccEmailList = ccEmails.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(email => email.Trim())
+                    .Where(email => !string.IsNullOrEmpty(email))
+                    .ToList();
+
+                foreach (var ccEmail in ccEmailList)
+                {
+                    if (IsValidEmail(ccEmail))
+                    {
+                        message.AddCc(new SendGrid.Helpers.Mail.EmailAddress(ccEmail));
+                        _logger.LogInformation("Added CC recipient: {CcEmail}", ccEmail);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Invalid CC email address: {CcEmail}", ccEmail);
+                    }
+                }
+            }
+
             // Add attachments
             if (attachments.Count > 0)
             {
@@ -905,6 +927,20 @@ public class TabController : ControllerBase
     {
         if (string.IsNullOrEmpty(input)) return string.Empty;
         return System.Text.RegularExpressions.Regex.Replace(input, "<.*?>", string.Empty);
+    }
+
+    private bool IsValidEmail(string email)
+    {
+        if (string.IsNullOrEmpty(email)) return false;
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == email;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task SaveEmailHistoryAsync(EmailJob emailJob, string status, string? errorMessage)
@@ -1178,7 +1214,7 @@ public class TabController : ControllerBase
             {
                 try
                 {
-                    await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson);
+                    await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson, request.Cc);
                     
                     // Try to save email history (with error handling)
                     await SaveEmailHistoryAsync(emailJob, "sent", null);
@@ -1500,6 +1536,9 @@ public class SendEmailWithPdfRequest
     
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;
+    
+    [JsonPropertyName("cc")]
+    public string? Cc { get; set; }
     
     [JsonPropertyName("employeeData")]
     public Dictionary<string, object>? EmployeeData { get; set; }

@@ -2559,6 +2559,7 @@ export interface SendEmailWithPdfRequest {
   signaturePath?: string;
   subject: string;
   content: string;
+  cc?: string;
   employeeData?: Record<string, any>;
   extraAttachments?: EmailAttachmentRequest[];
 }
