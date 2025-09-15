@@ -347,7 +347,7 @@ export function DocumentPreviewDialog({
               <Button
                 onClick={() => generatedDocuments.forEach(handleDownloadDocument)}
                 disabled={generating || generatedDocuments.length === 0}
-                className="w-full neon-border bg-card text-neon-green hover:bg-neon-green hover:text-white"
+                className="w-full neon-border-green bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Download All ({generatedDocuments.length})
@@ -356,7 +356,7 @@ export function DocumentPreviewDialog({
               <Button
                 onClick={handleGenerateFinal}
                 disabled={generating || generatedDocuments.length === 0}
-                className="w-full neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white"
+                className="w-full neon-border-blue bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
               >
                 {generating ? (
                   <>

@@ -495,11 +495,10 @@ class ApiService {
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     
-    console.log(`🚀 [API-REQUEST] Starting request to: ${endpoint}`);
-    console.log(`📡 [API-REQUEST] Full URL: ${url}`);
-    console.log(`📋 [API-REQUEST] Method: ${options.method || 'GET'}`);
-    console.log(`🔑 [API-REQUEST] Has auth token: ${!!this.authToken}`);
-    console.log(`📦 [API-REQUEST] Request body:`, options.body);
+    // Reduced logging for better performance
+    if (endpoint !== '/Tab') {
+      console.log(`🚀 [API-REQUEST] Starting request to: ${endpoint}`);
+    }
     
     // For FormData, don't set Content-Type - let browser set it with boundary
     const isFormData = options.body instanceof FormData;
@@ -513,23 +512,13 @@ class ApiService {
       },
     };
 
-    console.log(`🔧 [API-REQUEST] Request config:`, {
-      method: config.method,
-      headers: Object.fromEntries(new Headers(config.headers).entries()),
-      bodyType: isFormData ? 'FormData' : typeof config.body
-    });
-
     const makeRequest = async (): Promise<T> => {
-      console.log(`🔄 [API-REQUEST] Sending request...`);
       const response = await fetch(url, config);
-      console.log(`📊 [API-REQUEST] Response status: ${response.status} ${response.statusText}`);
-      console.log(`📊 [API-REQUEST] Response headers:`, Object.fromEntries(response.headers.entries()));
       return this.handleResponse<T>(response, makeRequest);
     };
 
     try {
       const result = await makeRequest();
-      console.log(`✅ [API-REQUEST] Request completed successfully`);
       return result;
     } catch (error) {
       console.error(`❌ [API-REQUEST] Request failed: ${endpoint}`, error);
@@ -869,6 +858,17 @@ class ApiService {
     });
   }
 
+  async updateEmployeeData(tabId: string, employeeId: string, field: string, value: string): Promise<ApiResponse<object>> {
+    return this.request<ApiResponse<object>>(`/Tab/${tabId}/employee-data`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        employeeId,
+        field,
+        value
+      }),
+    });
+  }
+
   async deleteEmployee(id: string): Promise<ApiResponse<void>> {
     return this.request<ApiResponse<void>>(`/er/employees/${id}`, {
       method: 'DELETE',
@@ -1045,10 +1045,21 @@ class ApiService {
 
   // Bulk Email Operations
   async sendBulkEmails(request: SendBulkEmailRequest): Promise<ApiResponse<any>> {
-    return this.request<ApiResponse<any>>('/er/emails/send-bulk', {
+    return this.request<ApiResponse<any>>('/Email/send-bulk', {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  }
+
+  async sendEmailWithPdf(tabId: string, request: SendEmailWithPdfRequest): Promise<ApiResponse<EmailJob>> {
+    return this.request<ApiResponse<EmailJob>>(`/Tab/${tabId}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getEmailHistory(tabId: string, page: number = 1, pageSize: number = 10): Promise<ApiResponse<EmailJob[]>> {
+    return this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
   }
 
   // Tab Data APIs (replacing document requests with tab data)
@@ -2403,10 +2414,11 @@ export interface PreviewDocumentsForTabRequest {
 
 // Bulk Email Types
 export interface SendBulkEmailRequest {
-  employees: BulkEmailEmployee[];
+  letterTypeDefinitionId: string;
+  excelUploadIds: string[];
   subject: string;
-  body: string;
-  attachments?: string[];
+  content: string;
+  attachments?: string;
   emailTemplateId?: string;
 }
 
@@ -2415,6 +2427,22 @@ export interface BulkEmailEmployee {
   employeeName: string;
   employeeEmail: string;
   documentId?: string;
+}
+
+export interface SendEmailWithPdfRequest {
+  employeeId: string;
+  templateId: string;
+  signaturePath?: string;
+  subject: string;
+  content: string;
+  employeeData?: Record<string, any>;
+  extraAttachments?: EmailAttachmentRequest[];
+}
+
+export interface EmailAttachmentRequest {
+  fileName: string;
+  mimeType: string;
+  content: string;
 }
 
 // Export singleton instance

@@ -40,6 +40,10 @@ export interface TabSignature {
 class TabService {
 
   private templates: TabTemplate[] = [];
+  private tabsCache: DynamicTab[] | null = null;
+  private lastCacheTime = 0;
+  private cacheDuration = 30000; // 30 seconds
+  private activeRequest: Promise<DynamicTab[]> | null = null;
 
   private signatures: TabSignature[] = [
     {
@@ -62,12 +66,40 @@ class TabService {
 
   // Tab Management - Now using Dynamic Letter Types
   async getTabs(): Promise<DynamicTab[]> {
+    // Check cache first
+    const now = Date.now();
+    if (this.tabsCache && (now - this.lastCacheTime) < this.cacheDuration) {
+      return this.tabsCache;
+    }
+
+    // If there's already a request in progress, return it
+    if (this.activeRequest) {
+      return this.activeRequest;
+    }
+
+    // Start new request
+    this.activeRequest = this.fetchTabsFromAPI();
+    
+    try {
+      const result = await this.activeRequest;
+      this.tabsCache = result;
+      this.lastCacheTime = now;
+      return result;
+    } finally {
+      this.activeRequest = null;
+    }
+  }
+
+  private clearCache(): void {
+    this.tabsCache = null;
+    this.lastCacheTime = 0;
+  }
+
+  private async fetchTabsFromAPI(): Promise<DynamicTab[]> {
     try {
       const response = await apiService.getLetterTypeDefinitions();
       
       if (response.success || response.Success) {
-        console.log('Full response:', response);
-        console.log('Response data:', response.data || response.Data);
         const responseData: any = response.data || response.Data || [];
         
         // Handle different data structures - could be array or object with array property
@@ -92,14 +124,8 @@ class TabService {
         }
         
         if (Array.isArray(letterTypes)) {
-          console.log('Raw letter types from backend:', letterTypes);
-          console.log('First letter type keys:', Object.keys(letterTypes[0] || {}));
           // Convert LetterTypeDefinition to DynamicTab format
           return letterTypes.map((letterType: any) => {
-            console.log('Processing letter type:', letterType);
-            console.log('Letter type keys:', Object.keys(letterType));
-            console.log('FieldConfiguration from backend:', letterType.FieldConfiguration);
-            console.log('fieldConfiguration from backend:', letterType.fieldConfiguration);
             return {
           id: letterType.Id || letterType.id,
           name: letterType.DisplayName || letterType.displayName,
@@ -209,6 +235,9 @@ class TabService {
 
       const response = await apiService.createLetterTypeDefinition(createRequest);
       if (response.success && response.data) {
+        // Clear cache to force refresh
+        this.clearCache();
+        
         // Convert back to DynamicTab format
         const letterType = response.data;
         return {
@@ -251,6 +280,9 @@ class TabService {
       const response = await apiService.updateLetterTypeDefinition(id, updateRequest);
       if (response.success && response.data) {
         console.log('Updated letter type:', response.data.displayName);
+        // Clear cache to force refresh
+        this.clearCache();
+        
         // Convert back to DynamicTab format
         const letterType = response.data;
         return {
@@ -281,6 +313,8 @@ class TabService {
       const response = await apiService.deleteLetterTypeDefinition(id);
       if (response.success) {
         console.log('Deleted letter type with ID:', id);
+        // Clear cache to force refresh
+        this.clearCache();
         return true;
       }
       return false;

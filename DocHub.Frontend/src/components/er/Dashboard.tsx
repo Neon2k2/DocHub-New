@@ -301,12 +301,10 @@ export function ERDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {dynamicTabs.length > 0 ? (
               dynamicTabs.slice(0, 2).map((tab, index) => {
-                const colors = ['text-neon-blue', 'text-neon-green', 'text-neon-purple'];
-                const hoverColors = ['hover:bg-neon-blue', 'hover:bg-neon-green', 'hover:bg-neon-purple'];
                 return (
                   <Button 
                     key={tab.id}
-                    className={`h-16 neon-border bg-card ${colors[index % colors.length]} ${hoverColors[index % hoverColors.length]} hover:text-white transition-all duration-300`}
+                    className={`h-16 neon-border-blue bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 transition-all duration-300`}
                   >
                     <FileText className="mr-2 h-5 w-5" />
                     Generate {tab.name}
@@ -321,7 +319,7 @@ export function ERDashboard() {
               </div>
             )}
             <Button 
-              className="h-16 neon-border bg-card text-neon-purple hover:bg-neon-purple hover:text-white transition-all duration-300"
+              className="h-16 neon-border-purple bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-950 dark:text-purple-300 dark:hover:bg-purple-900 transition-all duration-300"
             >
               <Users className="mr-2 h-5 w-5" />
               Employee Management

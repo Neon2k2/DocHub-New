@@ -44,7 +44,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
             <div className="w-8 h-8 gradient-bg rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">D</span>
             </div>
-            <h1 className="text-lg md:text-xl font-bold neon-text">DocHub</h1>
+            <h1 className="text-lg md:text-xl font-bold text-blue-600">DocHub</h1>
           </button>
         </div>
 
@@ -57,14 +57,11 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
               onClick={() => onModuleChange('er')}
               className={`relative transition-all duration-300 ${
                 activeModule === 'er' 
-                  ? 'neon-border bg-card text-neon-blue' 
+                  ? 'neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900' 
                   : 'hover:bg-muted'
               }`}
             >
               Employee Relations
-              {activeModule === 'er' && (
-                <div className="absolute inset-0 neon-glow rounded-md"></div>
-              )}
             </Button>
             <Button
               variant={activeModule === 'billing' ? 'default' : 'ghost'}
@@ -72,14 +69,11 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
               onClick={() => onModuleChange('billing')}
               className={`relative transition-all duration-300 ${
                 activeModule === 'billing' 
-                  ? 'neon-border bg-card text-neon-blue' 
+                  ? 'neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900' 
                   : 'hover:bg-muted'
               }`}
             >
               Billing & Timesheet
-              {activeModule === 'billing' && (
-                <div className="absolute inset-0 neon-glow rounded-md"></div>
-              )}
             </Button>
           </div>
         )}
@@ -103,17 +97,17 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
             variant="ghost"
             size="sm"
             onClick={toggleTheme}
-            className="neon-glow hover:text-neon-blue"
+            className="hover:text-blue-600"
           >
             {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
 
           {/* Notifications */}
           <div className="relative">
-            <Button variant="ghost" size="sm" className="neon-glow hover:text-neon-blue">
+            <Button variant="ghost" size="sm" className="hover:text-blue-600">
               <Bell className="h-4 w-4" />
             </Button>
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 bg-neon-pink border-0 text-xs flex items-center justify-center">
+            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 bg-pink-500 border-0 text-xs flex items-center justify-center">
               3
             </Badge>
           </div>
@@ -121,7 +115,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
           {/* Profile Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="neon-glow hover:text-neon-blue">
+              <Button variant="ghost" size="sm" className="hover:text-blue-600">
                 {getRoleIcon()}
                 <span className="ml-2 hidden md:inline">{currentUser.name}</span>
                 {currentUser.permissions.isAdmin && (

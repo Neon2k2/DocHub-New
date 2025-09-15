@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Users, Check, X, Mail, FileText, User } from 'lucide-react';
+import { Search, Filter, Users, Check, X, Mail, FileText, User, Edit3, Eye, Save } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
-import { Employee } from '../../services/api.service';
+import { Employee, apiService } from '../../services/api.service';
 import { useEmployees } from '../../hooks/useEmployees';
 import { ExcelData } from '../../services/excel.service';
 
@@ -36,6 +36,11 @@ export function EmployeeSelector({
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingCell, setEditingCell] = useState<{rowId: string, field: string} | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Convert Excel data to Employee format
   const convertExcelDataToEmployees = (excelData: ExcelData): Employee[] => {
@@ -174,6 +179,75 @@ export function EmployeeSelector({
       .slice(0, 2);
   };
 
+  const handleCellClick = (rowId: string, field: string, currentValue: string) => {
+    if (!isEditMode) return;
+    
+    setEditingCell({ rowId, field });
+    setEditingValue(currentValue || '');
+  };
+
+  const handleCellKeyDown = (e: React.KeyboardEvent, rowId: string, field: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveCell(rowId, field);
+    } else if (e.key === 'Escape') {
+      setEditingCell(null);
+      setEditingValue('');
+    }
+  };
+
+  const handleSaveCell = async (rowId: string, field: string) => {
+    if (!tabId || editingValue === undefined) return;
+    
+    setIsSaving(true);
+    try {
+      console.log('Saving cell:', { rowId, field, value: editingValue, tabId });
+      
+      // Call API to update employee data
+      const response = await apiService.updateEmployeeData(tabId, rowId, field, editingValue);
+      
+      if (response.success || response.Success) {
+        console.log('Cell saved successfully');
+        setEditingCell(null);
+        setEditingValue('');
+        setSaveMessage('Cell saved successfully!');
+        setTimeout(() => setSaveMessage(null), 3000);
+        
+        // TODO: Update local state or refresh data
+        // For now, the change will be reflected on next page refresh
+      } else {
+        console.error('Failed to save cell:', response.error || response.Error);
+        setSaveMessage('Failed to save cell. Please try again.');
+        setTimeout(() => setSaveMessage(null), 3000);
+      }
+    } catch (error) {
+      console.error('Error saving cell:', error);
+      setSaveMessage('Error saving cell. Please try again.');
+      setTimeout(() => setSaveMessage(null), 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getCellValue = (employee: Employee, field: string) => {
+    switch (field) {
+      case 'name':
+        return employee.name;
+      case 'employeeId':
+        return employee.employeeId;
+      case 'designation':
+        return employee.designation;
+      case 'department':
+        return employee.department;
+      case 'email':
+        return employee.email;
+      case 'status':
+        return employee.status;
+      default:
+        return (employee as any)[field] || '';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Selection Summary & Actions */}
@@ -209,7 +283,7 @@ export function EmployeeSelector({
                 {onGenerate && (
                   <Button
                     onClick={() => onGenerate(selectedEmployees)}
-                    className="neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white"
+                    className="border border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
                   >
                     <FileText className="h-4 w-4 mr-2" />
                     Generate ({selectedEmployees.length})
@@ -220,7 +294,7 @@ export function EmployeeSelector({
                   <Button
                     onClick={() => onSendEmail(employeesWithEmails)}
                     disabled={employeesWithEmails.length === 0}
-                    className="neon-border bg-card text-neon-green hover:bg-neon-green hover:text-white disabled:opacity-50"
+                    className="border border-green-500 bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900 disabled:opacity-50"
                   >
                     <Mail className="h-4 w-4 mr-2" />
                     Send Email ({employeesWithEmails.length})
@@ -265,22 +339,46 @@ export function EmployeeSelector({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-neon-blue" />
-                Select Employees
-              </CardTitle>
-              <CardDescription>
-                Choose employees to generate letters for
-              </CardDescription>
+               <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
+                 <Users className="h-5 w-5 text-neon-blue" />
+                 Select Employees
+               </CardTitle>
+               <CardDescription className="text-gray-600 dark:text-gray-400">
+                 Choose employees to generate letters for
+               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-4 w-4 mr-1" />
-              Filters
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={isEditMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIsEditMode(!isEditMode)}
+                className={isEditMode 
+                  ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-md" 
+                  : "border-2 border-blue-500 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950 dark:hover:text-blue-300"
+                }
+              >
+                {isEditMode ? (
+                  <>
+                    <Eye className="h-4 w-4 mr-1" />
+                    View Mode
+                  </>
+                ) : (
+                  <>
+                    <Edit3 className="h-4 w-4 mr-1" />
+                    Edit Mode
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="border-2 border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+              >
+                <Filter className="h-4 w-4 mr-1" />
+                Filters
+              </Button>
+            </div>
           </div>
         </CardHeader>
         
@@ -337,45 +435,68 @@ export function EmployeeSelector({
 
           {/* Employee Count */}
           <div className="flex items-center justify-between py-2">
-            <span className="text-sm text-muted-foreground">
-              {employees.length} employee{employees.length !== 1 ? 's' : ''} found
-            </span>
+             <span className="text-sm text-gray-600 dark:text-gray-400">
+               {employees.length} employee{employees.length !== 1 ? 's' : ''} found
+             </span>
+            <div className="flex items-center gap-4">
+              {isSaving && (
+                <div className="flex items-center gap-2 text-sm text-blue-400">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                  <span>Saving...</span>
+                </div>
+              )}
+              {saveMessage && (
+                <div className={`text-sm px-3 py-1 rounded ${
+                  saveMessage.includes('successfully') 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-red-100 text-red-700'
+                }`}>
+                  {saveMessage}
+                </div>
+              )}
+            </div>
           </div>
 
           <Separator />
 
           {/* Employee Table */}
-          <div className="border rounded-lg overflow-hidden">
+          <div className={`border rounded-lg overflow-hidden ${isEditMode ? 'ring-2 ring-blue-500/50' : ''}`}>
+            {isEditMode && (
+              <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-sm text-blue-700 flex items-center gap-2">
+                <Edit3 className="h-4 w-4" />
+                <span>Edit Mode: Click on any cell to edit. Press Enter to save, Escape to cancel.</span>
+              </div>
+            )}
             <div className="overflow-x-auto max-h-96 overflow-y-auto">
               {loading ? (
                 <div className="p-8 text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neon-blue mx-auto mb-4"></div>
-                  <p className="text-muted-foreground">Loading employees...</p>
+                   <p className="text-gray-600 dark:text-gray-400">Loading employees...</p>
                 </div>
               ) : error ? (
                 <div className="text-center py-8 text-red-400">
                   {error}
                 </div>
               ) : employees.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No employees found matching your criteria</p>
-                </div>
+                 <div className="text-center py-8 text-gray-600 dark:text-gray-400">
+                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                   <p>No employees found matching your criteria</p>
+                 </div>
               ) : (
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 sticky top-0">
+                  <thead className="bg-muted sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium border-b">
-                        <Checkbox
-                          checked={employees.length > 0 && employees.every(emp => isEmployeeSelected(emp.id))}
-                          onCheckedChange={handleSelectAll}
-                        />
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium border-b">Employee</th>
-                      <th className="px-3 py-2 text-left font-medium border-b">ID</th>
-                      <th className="px-3 py-2 text-left font-medium border-b">Designation</th>
-                      <th className="px-3 py-2 text-left font-medium border-b">Department</th>
-                      <th className="px-3 py-2 text-left font-medium border-b">Email</th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">
+                         <Checkbox
+                           checked={employees.length > 0 && employees.every(emp => isEmployeeSelected(emp.id))}
+                           onCheckedChange={handleSelectAll}
+                         />
+                       </th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Employee</th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">ID</th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Designation</th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Department</th>
+                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Email</th>
                       {shouldUseExcelData && excelData?.headers && excelData.headers
                         .filter(header => {
                           const mappedFields = ['EMP ID', 'Employee ID', 'ID', 'EmpId', 'EmployeeId', 
@@ -386,20 +507,20 @@ export function EmployeeSelector({
                           return !mappedFields.includes(header);
                         })
                         .map(header => (
-                          <th key={header} className="px-3 py-2 text-left font-medium border-b">
-                            {header}
-                          </th>
+                           <th key={header} className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">
+                             {header}
+                           </th>
                         ))
                       }
-                      <th className="px-3 py-2 text-left font-medium border-b">Status</th>
+                      <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {employees.map(employee => (
                       <tr 
                         key={employee.id}
-                        className={`hover:bg-gray-50 cursor-pointer transition-colors ${
-                          isEmployeeSelected(employee.id) ? 'bg-blue-50' : ''
+                        className={`hover:bg-muted/50 cursor-pointer transition-colors ${
+                          isEmployeeSelected(employee.id) ? 'bg-primary/10' : ''
                         }`}
                         onClick={() => handleSelectEmployee(employee, !isEmployeeSelected(employee.id))}
                       >
@@ -417,24 +538,109 @@ export function EmployeeSelector({
                                 {getEmployeeInitials(employee.name)}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="font-medium">{employee.name}</span>
+                            {editingCell?.rowId === employee.id && editingCell?.field === 'name' ? (
+                              <Input
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onKeyDown={(e) => handleCellKeyDown(e, employee.id, 'name')}
+                                onBlur={() => handleSaveCell(employee.id, 'name')}
+                                className="h-8 text-sm"
+                                autoFocus
+                              />
+                            ) : (
+                               <span 
+                                 className={`font-medium text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                                 onClick={() => handleCellClick(employee.id, 'name', employee.name)}
+                               >
+                                 {employee.name}
+                               </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2 border-b">
-                          <Badge variant="outline" className="text-xs">
-                            {employee.employeeId}
-                          </Badge>
+                          {editingCell?.rowId === employee.id && editingCell?.field === 'employeeId' ? (
+                            <Input
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => handleCellKeyDown(e, employee.id, 'employeeId')}
+                              onBlur={() => handleSaveCell(employee.id, 'employeeId')}
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+                          ) : (
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs ${isEditMode ? 'cursor-pointer hover:bg-muted' : ''}`}
+                              onClick={() => handleCellClick(employee.id, 'employeeId', employee.employeeId)}
+                            >
+                              {employee.employeeId}
+                            </Badge>
+                          )}
                         </td>
-                        <td className="px-3 py-2 border-b">{employee.designation}</td>
-                        <td className="px-3 py-2 border-b">{employee.department}</td>
                         <td className="px-3 py-2 border-b">
-                          {employee.email ? (
+                          {editingCell?.rowId === employee.id && editingCell?.field === 'designation' ? (
+                            <Input
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => handleCellKeyDown(e, employee.id, 'designation')}
+                              onBlur={() => handleSaveCell(employee.id, 'designation')}
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+                          ) : (
+                             <span 
+                               className={`text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                               onClick={() => handleCellClick(employee.id, 'designation', employee.designation)}
+                             >
+                               {employee.designation}
+                             </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 border-b">
+                          {editingCell?.rowId === employee.id && editingCell?.field === 'department' ? (
+                            <Input
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => handleCellKeyDown(e, employee.id, 'department')}
+                              onBlur={() => handleSaveCell(employee.id, 'department')}
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+                          ) : (
+                             <span 
+                               className={`text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                               onClick={() => handleCellClick(employee.id, 'department', employee.department)}
+                             >
+                               {employee.department}
+                             </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 border-b">
+                          {editingCell?.rowId === employee.id && editingCell?.field === 'email' ? (
+                            <Input
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => handleCellKeyDown(e, employee.id, 'email')}
+                              onBlur={() => handleSaveCell(employee.id, 'email')}
+                              className="h-8 text-sm"
+                              autoFocus
+                            />
+                          ) : employee.email ? (
                             <div className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              <span className="text-xs">{employee.email}</span>
+                              <Mail className="h-3 w-3 text-gray-500 dark:text-gray-400" />
+                               <span 
+                                 className={`text-xs text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                                 onClick={() => handleCellClick(employee.id, 'email', employee.email)}
+                               >
+                                 {employee.email}
+                               </span>
                             </div>
                           ) : (
-                            <Badge variant="outline" className="text-orange-400 border-orange-500/30 text-xs">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-orange-400 border-orange-500/30 text-xs ${isEditMode ? 'cursor-pointer hover:bg-muted' : ''}`}
+                              onClick={() => handleCellClick(employee.id, 'email', '')}
+                            >
                               No Email
                             </Badge>
                           )}
@@ -449,21 +655,42 @@ export function EmployeeSelector({
                             return !mappedFields.includes(header);
                           })
                           .map(header => (
-                            <td key={header} className="px-3 py-2 border-b">
-                              {employee[header] || ''}
-                            </td>
+                             <td key={header} className="px-3 py-2 border-b text-gray-900 dark:text-white">
+                               {employee[header] || ''}
+                             </td>
                           ))
                         }
                         <td className="px-3 py-2 border-b">
-                          <Badge 
-                            variant="outline"
-                            className={employee.status === 'active' 
-                              ? 'text-green-400 border-green-500/30' 
-                              : 'text-red-400 border-red-500/30'
-                            }
-                          >
-                            {employee.status}
-                          </Badge>
+                          {editingCell?.rowId === employee.id && editingCell?.field === 'status' ? (
+                            <Select
+                              value={editingValue}
+                              onValueChange={(value) => setEditingValue(value)}
+                              onOpenChange={(open) => {
+                                if (!open) {
+                                  handleSaveCell(employee.id, 'status');
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge 
+                              variant="outline"
+                              className={`${employee.status === 'active' 
+                                ? 'text-green-400 border-green-500/30' 
+                                : 'text-red-400 border-red-500/30'
+                              } ${isEditMode ? 'cursor-pointer hover:bg-muted' : ''}`}
+                              onClick={() => handleCellClick(employee.id, 'status', employee.status)}
+                            >
+                              {employee.status}
+                            </Badge>
+                          )}
                         </td>
                       </tr>
                     ))}

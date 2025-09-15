@@ -34,23 +34,52 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    let lastFetchTime = 0;
+    const CACHE_DURATION = 30000; // 30 seconds cache
+    let requestInProgress = false;
+
     const loadDynamicTabs = async () => {
+      // Prevent multiple simultaneous requests
+      if (requestInProgress) {
+        return;
+      }
+
+      // Check cache duration
+      const now = Date.now();
+      if (now - lastFetchTime < CACHE_DURATION) {
+        return;
+      }
+
+      requestInProgress = true;
+      
       try {
         const tabs = await tabService.getTabs();
-        setDynamicTabs(tabs.filter(tab => tab.isActive));
+        if (isMounted) {
+          setDynamicTabs(tabs.filter(tab => tab.isActive));
+          lastFetchTime = now;
+        }
       } catch (error) {
         console.error('Failed to load dynamic tabs:', error);
+        // Don't update lastFetchTime on error to allow retry
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
+        requestInProgress = false;
       }
     };
 
+    // Load immediately
     loadDynamicTabs();
     
-    // Refresh tabs when module changes or periodically
-    const interval = setInterval(loadDynamicTabs, 10000); // Refresh every 10 seconds (less frequent)
+    // Refresh tabs when module changes or periodically (increased to 60 seconds)
+    const interval = setInterval(loadDynamicTabs, 60000);
     
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [activeModule]);
 
   // Base static pages
@@ -105,7 +134,7 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
             
             <div className="mb-4 p-3 glass-panel rounded-lg border-glass-border">
               <div className="text-xs text-muted-foreground">
-                Logged in as <span className="text-neon-blue font-medium">{currentUser.name}</span>
+                Logged in as <span className="text-blue-600 font-medium">{currentUser.name}</span>
               </div>
               <div className="text-xs text-muted-foreground mt-1">
                 Role: <span className="capitalize text-foreground font-medium">{currentUser.role}</span>
@@ -131,8 +160,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                       variant={isActive ? 'default' : 'ghost'}
                       className={cn(
                         "w-full justify-start transition-all duration-300",
-                        isActive && "neon-border bg-card text-neon-blue neon-glow",
-                        !isActive && "hover:bg-muted hover:text-neon-blue"
+                        isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                        !isActive && "hover:bg-muted hover:text-blue-600"
                       )}
                       onClick={() => onPageChange(page.id)}
                     >
@@ -164,15 +193,15 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                         variant={isActive ? 'default' : 'ghost'}
                         className={cn(
                           "w-full justify-start transition-all duration-300 group",
-                          isActive && "neon-border bg-card text-neon-blue neon-glow",
-                          !isActive && "hover:bg-muted hover:text-neon-blue",
-                          !page.isStatic && "border-l-2 border-transparent hover:border-neon-blue/50"
+                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400",
+                          !page.isStatic && "border-l-2 border-transparent hover:border-blue-500/50"
                         )}
                         onClick={() => onPageChange(page.id)}
                       >
                         <Icon className={cn(
                           "mr-3 h-4 w-4",
-                          !page.isStatic && "text-neon-blue/70 group-hover:text-neon-blue"
+                          !page.isStatic && "text-blue-600/70 group-hover:text-blue-600"
                         )} />
                         <span className="truncate">{page.label}</span>
                       </Button>
@@ -202,8 +231,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                         variant={isActive ? 'default' : 'ghost'}
                         className={cn(
                           "w-full justify-start transition-all duration-300",
-                          isActive && "neon-border bg-card text-neon-blue neon-glow",
-                          !isActive && "hover:bg-muted hover:text-neon-blue"
+                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400"
                         )}
                         onClick={() => onPageChange(page.id)}
                       >
@@ -236,8 +265,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                         variant={isActive ? 'default' : 'ghost'}
                         className={cn(
                           "w-full justify-start transition-all duration-300",
-                          isActive && "neon-border bg-card text-neon-blue neon-glow",
-                          !isActive && "hover:bg-muted hover:text-neon-blue"
+                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400"
                         )}
                         onClick={() => onPageChange(page.id)}
                       >
@@ -270,8 +299,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                         variant={isActive ? 'default' : 'ghost'}
                         className={cn(
                           "w-full justify-start transition-all duration-300",
-                          isActive && "neon-border bg-card text-neon-blue neon-glow",
-                          !isActive && "hover:bg-muted hover:text-neon-blue"
+                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400"
                         )}
                         onClick={() => onPageChange(page.id)}
                       >
@@ -304,8 +333,8 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                         variant={isActive ? 'default' : 'ghost'}
                         className={cn(
                           "w-full justify-start transition-all duration-300",
-                          isActive && "neon-border bg-card text-neon-blue neon-glow",
-                          !isActive && "hover:bg-muted hover:text-neon-blue"
+                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400"
                         )}
                         onClick={() => onPageChange(page.id)}
                       >

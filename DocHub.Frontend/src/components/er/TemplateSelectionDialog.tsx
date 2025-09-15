@@ -394,7 +394,7 @@ export function TemplateSelectionDialog({
                 <Button
                   onClick={handleUploadTemplate}
                   disabled={!uploadFile || !uploadName.trim() || uploading}
-                  className="w-full neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white"
+                  className="w-full border border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
                 >
                   {uploading ? (
                     <>Processing...</>

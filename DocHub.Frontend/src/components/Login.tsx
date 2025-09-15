@@ -53,7 +53,7 @@ export function Login() {
             <div className="w-12 h-12 gradient-bg rounded-lg flex items-center justify-center">
               <span className="text-white text-xl font-bold">D</span>
             </div>
-            <h1 className="text-3xl font-bold neon-text">DocHub</h1>
+            <h1 className="text-3xl font-bold text-blue-600">DocHub</h1>
           </div>
           <p className="text-muted-foreground">
             Welcome to DocHub - Your Document Management System
@@ -64,7 +64,7 @@ export function Login() {
         <Card className="glass-panel border-glass-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LogIn className="h-5 w-5 text-neon-blue" />
+              <LogIn className="h-5 w-5 text-blue-600" />
               Login
             </CardTitle>
             <CardDescription>
@@ -107,7 +107,7 @@ export function Login() {
             <Button 
               onClick={handleLogin}
               disabled={isLoading}
-              className="w-full neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white transition-all duration-300 disabled:opacity-50"
+              className="w-full neon-border-blue bg-blue-600 hover:bg-blue-700 text-black dark:text-white transition-all duration-300 disabled:opacity-50"
             >
               {isLoading ? (
                 <>

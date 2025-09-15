@@ -584,7 +584,7 @@ export function EmailComposerDialog({
             {activeTab === 'compose' && (
               <Button
                 onClick={() => setActiveTab('preview')}
-                className="neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white"
+                className="neon-border-blue bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
               >
                 <Eye className="h-4 w-4 mr-2" />
                 Preview All
@@ -595,7 +595,7 @@ export function EmailComposerDialog({
               <Button
                 onClick={handleSendAll}
                 disabled={sending || employees.filter(emp => emp.email).length === 0}
-                className="neon-border bg-card text-neon-green hover:bg-neon-green hover:text-white"
+                className="neon-border-green bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900"
               >
                 {sending ? (
                   <>

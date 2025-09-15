@@ -144,7 +144,7 @@ export function SignatureManagement() {
           if (!open) resetForm();
         }}>
           <DialogTrigger asChild>
-            <Button className="neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white transition-all duration-300">
+            <Button className="border border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 transition-all duration-300">
               <Plus className="h-4 w-4 mr-2" />
               Upload Signature
             </Button>
@@ -222,7 +222,7 @@ export function SignatureManagement() {
                 <p className="text-sm text-muted-foreground">Total Signatures</p>
                 <p className="text-2xl font-bold">{signatures.length}</p>
               </div>
-              <ImageIcon className="h-8 w-8 text-neon-blue" />
+              <ImageIcon className="h-8 w-8 text-blue-600" />
             </div>
           </CardContent>
         </Card>

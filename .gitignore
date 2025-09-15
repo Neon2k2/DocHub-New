@@ -471,3 +471,4 @@ docker-compose.override.yml
 # Local development
 local.settings.json
 appsettings.local.json
+DocHub.Backend/DocHub.API/appsettings.json

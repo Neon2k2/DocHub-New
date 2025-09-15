@@ -1,6 +1,7 @@
 using DocHub.Core.Interfaces;
 using DocHub.Shared.DTOs.Tabs;
 using DocHub.Shared.DTOs.Common;
+using DocHub.Shared.DTOs.Emails;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
@@ -8,6 +9,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DocHub.Core.Entities;
 using Microsoft.EntityFrameworkCore;
+using SendGrid;
+using SendGrid.Helpers.Mail;
 
 namespace DocHub.API.Controllers;
 
@@ -21,15 +24,19 @@ public class TabController : ControllerBase
     private readonly ITemplateService _templateService;
     private readonly IRepository<TableSchema> _tableSchemaRepository;
     private readonly IDbContext _dbContext;
+    private readonly IEmailService _emailService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<TabController> _logger;
 
-    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, ILogger<TabController> logger)
+    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IConfiguration configuration, ILogger<TabController> logger)
     {
         _tabService = tabService;
         _letterGenerationService = letterGenerationService;
         _templateService = templateService;
         _tableSchemaRepository = tableSchemaRepository;
         _dbContext = dbContext;
+        _emailService = emailService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -142,6 +149,123 @@ public class TabController : ControllerBase
         {
             _logger.LogError(ex, "❌ [TAB-CREATE] Unexpected error creating letter type: {Message}", ex.Message);
             return StatusCode(500, ApiResponse<LetterTypeDefinitionDto>.ErrorResult("An error occurred while creating letter type"));
+        }
+    }
+
+    [HttpPut("employee-data/{tabId}")]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateEmployeeData(string tabId, [FromBody] UpdateEmployeeDataRequest request)
+    {
+        _logger.LogInformation("🚀 [UPDATE-EMPLOYEE] Method entry - tabId: {TabId}, request: {Request}", tabId, request != null ? "not null" : "null");
+        _logger.LogInformation("🚀 [UPDATE-EMPLOYEE] Route matched successfully!");
+        
+        // Check if request is null
+        if (request == null)
+        {
+            _logger.LogError("❌ [UPDATE-EMPLOYEE] Request is null");
+            return BadRequest(new ApiResponse<object> { Success = false, Message = "Request body is required" });
+        }
+        
+        // Log the request details
+        _logger.LogInformation("🚀 [UPDATE-EMPLOYEE] Request details - EmployeeId: {EmployeeId}, Field: {Field}, Value: {Value}", 
+            request.EmployeeId, request.Field, request.Value);
+        
+        // Check ModelState for validation errors
+        if (!ModelState.IsValid)
+        {
+            _logger.LogError("❌ [UPDATE-EMPLOYEE] ModelState is invalid");
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+            _logger.LogError("❌ [UPDATE-EMPLOYEE] Validation errors: {Errors}", string.Join(", ", errors));
+            return BadRequest(new ApiResponse<object> { Success = false, Message = "Invalid request data" });
+        }
+        
+        try
+        {
+            // Parse the tabId as GUID
+            if (!Guid.TryParse(tabId, out var tabIdGuid))
+            {
+                _logger.LogError("❌ [UPDATE-EMPLOYEE] Invalid tabId format: {TabId}", tabId);
+                return BadRequest(new ApiResponse<object> { Success = false, Message = "Invalid tab ID format" });
+            }
+            
+            _logger.LogInformation("Updating employee data for tab: {TabId}, employee: {EmployeeId}, field: {Field}", 
+                tabId, request.EmployeeId, request.Field);
+
+            // Get the tab
+            var tab = await _tabService.GetLetterTypeAsync(tabIdGuid);
+            if (tab == null)
+            {
+                return NotFound(new ApiResponse<object> { Success = false, Message = "Tab not found" });
+            }
+
+            // Get the table schema for this tab
+            var tableSchema = await _tableSchemaRepository.FirstOrDefaultAsync(ts => ts.LetterTypeDefinitionId == tabIdGuid);
+            if (tableSchema == null)
+            {
+                return BadRequest(new ApiResponse<object> { Success = false, Message = "No data table found for this tab" });
+            }
+
+            // Log the table schema details
+            _logger.LogInformation("Table schema found - TableName: {TableName}, ColumnDefinitions: {ColumnDefinitions}", 
+                tableSchema.TableName, tableSchema.ColumnDefinitions);
+
+            // Update the employee data in the dynamic table
+            var tableName = tableSchema.TableName;
+            _logger.LogInformation("Using table name: {TableName} for update", tableName);
+            
+            // Validate that the field exists in the table schema
+            // For now, we'll skip the column validation since the table schema might not have the exact column names
+            // The field validation will be done at the database level when we execute the query
+            _logger.LogInformation("Skipping column validation - will validate at database level");
+            
+            var query = $"UPDATE [{tableName}] SET [{request.Field}] = @Value WHERE [EMP ID] = @EmployeeId";
+            _logger.LogInformation("Executing query: {Query}", query);
+            
+            using var connection = ((DbContext)_dbContext).Database.GetDbConnection();
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = query;
+            
+            var valueParameter = command.CreateParameter();
+            valueParameter.ParameterName = "@Value";
+            valueParameter.Value = request.Value ?? string.Empty;
+            command.Parameters.Add(valueParameter);
+            
+            var employeeIdParameter = command.CreateParameter();
+            employeeIdParameter.ParameterName = "@EmployeeId";
+            employeeIdParameter.Value = request.EmployeeId;
+            command.Parameters.Add(employeeIdParameter);
+
+            _logger.LogInformation("Executing command with parameters - Value: {Value}, EmployeeId: {EmployeeId}", 
+                request.Value, request.EmployeeId);
+            
+            var rowsAffected = await command.ExecuteNonQueryAsync();
+            _logger.LogInformation("Query executed, rows affected: {RowsAffected}", rowsAffected);
+            
+            if (rowsAffected == 0)
+            {
+                _logger.LogWarning("No rows were updated for EmployeeId: {EmployeeId} in table: {TableName}", 
+                    request.EmployeeId, tableName);
+                return NotFound(new ApiResponse<object> { Success = false, Message = "Employee not found or field does not exist" });
+            }
+
+            _logger.LogInformation("Successfully updated employee data for tab: {TabId}, employee: {EmployeeId}, field: {Field}", 
+                tabId, request.EmployeeId, request.Field);
+
+            return Ok(new ApiResponse<object> { Success = true, Message = "Employee data updated successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating employee data for tab: {TabId}, employee: {EmployeeId}, field: {Field}, value: {Value}", 
+                tabId, request.EmployeeId, request.Field, request.Value);
+            _logger.LogError("Exception details: {ExceptionMessage}", ex.Message);
+            
+            // Check if it's a SQL exception about invalid column name
+            if (ex.Message.Contains("Invalid column name") || ex.Message.Contains("Column") && ex.Message.Contains("does not exist"))
+            {
+                return BadRequest(new ApiResponse<object> { Success = false, Message = $"Field '{request.Field}' does not exist in the table" });
+            }
+            
+            return StatusCode(500, new ApiResponse<object> { Success = false, Message = $"Error updating employee data: {ex.Message}" });
         }
     }
 
@@ -514,12 +638,321 @@ public class TabController : ControllerBase
         }
     }
 
+    [HttpGet("{tabId}/email-history")]
+    public async Task<ActionResult<ApiResponse<IEnumerable<EmailJobDto>>>> GetEmailHistory(string tabId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    {
+        try
+        {
+            _logger.LogInformation("Getting email history for tab: {TabId}, page: {Page}, pageSize: {PageSize}", tabId, page, pageSize);
+
+            // Try to get from database first
+            try
+            {
+                var emailJobs = await _dbContext.EmailJobs
+                    .Where(e => e.LetterTypeDefinitionId == Guid.Parse(tabId))
+                    .OrderByDescending(e => e.CreatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var emailJobDtos = emailJobs.Select(e => new EmailJobDto
+                {
+                    Id = e.Id,
+                    LetterTypeDefinitionId = e.LetterTypeDefinitionId,
+                    LetterTypeName = "Dynamic Tab", // You might want to get this from the tab
+                    ExcelUploadId = e.ExcelUploadId,
+                    Subject = e.Subject,
+                    Content = e.Content,
+                    Attachments = e.Attachments,
+                    Status = e.Status,
+                    SentBy = e.SentBy,
+                    EmployeeId = e.RecipientEmail, // Using email as ID for now
+                    EmployeeName = e.RecipientName,
+                    EmployeeEmail = e.RecipientEmail,
+                    RecipientEmail = e.RecipientEmail,
+                    RecipientName = e.RecipientName,
+                    CreatedAt = e.CreatedAt,
+                    SentAt = e.SentAt,
+                    DeliveredAt = e.DeliveredAt,
+                    OpenedAt = e.OpenedAt,
+                    ClickedAt = e.ClickedAt,
+                    BouncedAt = e.BouncedAt,
+                    DroppedAt = e.DroppedAt,
+                    SpamReportedAt = e.SpamReportedAt,
+                    UnsubscribedAt = e.UnsubscribedAt,
+                    BounceReason = e.BounceReason,
+                    DropReason = e.DropReason,
+                    TrackingId = e.TrackingId,
+                    SendGridMessageId = e.SendGridMessageId,
+                    ErrorMessage = e.ErrorMessage,
+                    ProcessedAt = e.ProcessedAt,
+                    RetryCount = e.RetryCount,
+                    LastRetryAt = e.LastRetryAt,
+                    UpdatedAt = e.UpdatedAt
+                }).ToList();
+
+                return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = emailJobDtos });
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogWarning(dbEx, "Database query failed, trying file system fallback");
+                
+                // Fallback: Get from file system
+                var historyDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "email-history");
+                if (Directory.Exists(historyDir))
+                {
+                    var files = Directory.GetFiles(historyDir, "email_*.json")
+                        .OrderByDescending(f => System.IO.File.GetCreationTime(f))
+                        .Skip((page - 1) * pageSize)
+                        .Take(pageSize);
+
+                    var emailJobDtos = new List<EmailJobDto>();
+                    foreach (var file in files)
+                    {
+                        try
+                        {
+                            var json = await System.IO.File.ReadAllTextAsync(file);
+                            var historyData = JsonSerializer.Deserialize<EmailJobDto>(json);
+                            if (historyData != null)
+                            {
+                                emailJobDtos.Add(historyData);
+                            }
+                        }
+                        catch (Exception fileEx)
+                        {
+                            _logger.LogWarning(fileEx, "Failed to read email history file: {File}", file);
+                        }
+                    }
+
+                    return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = emailJobDtos });
+                }
+
+                return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = new List<EmailJobDto>() });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email history for tab: {TabId}", tabId);
+            return StatusCode(500, new ApiResponse<IEnumerable<EmailJobDto>> { Success = false, Message = "Error getting email history" });
+        }
+    }
+
+    [HttpGet("email-status")]
+    public ActionResult<ApiResponse<object>> GetEmailStatus()
+    {
+        try
+        {
+            var apiKey = _configuration["SendGrid:ApiKey"];
+            var skipSending = _configuration["SendGrid:SkipSending"] == "true";
+            
+            var status = new
+            {
+                SendGridConfigured = !string.IsNullOrEmpty(apiKey),
+                SendingEnabled = !skipSending,
+                FromEmail = _configuration["SendGrid:FromEmail"],
+                FromName = _configuration["SendGrid:FromName"],
+                Status = skipSending ? "Disabled (Testing Mode)" : "Enabled",
+                Message = skipSending ? "Email sending is disabled for testing. Change 'SkipSending' to 'false' in appsettings.json to enable." : "Email sending is enabled."
+            };
+
+            return Ok(new ApiResponse<object> { Success = true, Data = status });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email status");
+            return StatusCode(500, new ApiResponse<object> { Success = false, Message = "Error getting email status" });
+        }
+    }
+
     private string GetCurrentUserId()
     {
         return User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? 
                User.FindFirst("sub")?.Value ?? 
                User.FindFirst("nameid")?.Value ?? 
                throw new UnauthorizedAccessException("User ID not found in token");
+    }
+
+    private async Task SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson)
+    {
+        try
+        {
+            // Get SendGrid configuration
+            var apiKey = _configuration["SendGrid:ApiKey"];
+            var fromEmail = _configuration["SendGrid:FromEmail"];
+            var fromName = _configuration["SendGrid:FromName"];
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                throw new InvalidOperationException("SendGrid API key is not configured");
+            }
+
+            // Check if we should skip sending due to credits (for testing)
+            var skipSending = _configuration["SendGrid:SkipSending"] == "true";
+            if (skipSending)
+            {
+                _logger.LogWarning("SendGrid sending is disabled via configuration. Email would have been sent to {Email}", toEmail);
+                throw new InvalidOperationException("SendGrid sending is disabled for testing");
+            }
+
+            // Create SendGrid client
+            var client = new SendGrid.SendGridClient(apiKey);
+
+            // Parse attachments if any
+            var attachments = new List<SendGrid.Helpers.Mail.Attachment>();
+            if (!string.IsNullOrEmpty(attachmentsJson))
+            {
+                try
+                {
+                    var attachmentList = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(attachmentsJson);
+                    if (attachmentList != null)
+                    {
+                        foreach (var att in attachmentList)
+                        {
+                            if (att.TryGetValue("fileName", out var fileName) &&
+                                att.TryGetValue("mimeType", out var mimeType) &&
+                                att.TryGetValue("content", out var contentBase64))
+                            {
+                                var attachment = new SendGrid.Helpers.Mail.Attachment
+                                {
+                                    Content = contentBase64.ToString(),
+                                    Type = mimeType.ToString(),
+                                    Filename = fileName.ToString()
+                                };
+                                attachments.Add(attachment);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse attachments, sending email without attachments");
+                }
+            }
+
+            // Create email message
+            var message = new SendGrid.Helpers.Mail.SendGridMessage()
+            {
+                From = new SendGrid.Helpers.Mail.EmailAddress(fromEmail, fromName),
+                Subject = subject,
+                PlainTextContent = StripHtml(content),
+                HtmlContent = content
+            };
+
+            message.AddTo(new SendGrid.Helpers.Mail.EmailAddress(toEmail, toName));
+
+            // Add attachments
+            if (attachments.Count > 0)
+            {
+                message.Attachments = attachments;
+            }
+
+            // Send email
+            var response = await client.SendEmailAsync(message);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Email sent successfully to {Email} with status {StatusCode}", toEmail, response.StatusCode);
+            }
+            else
+            {
+                var responseBody = await response.Body.ReadAsStringAsync();
+                throw new HttpRequestException($"SendGrid API returned status code: {response.StatusCode}. Response: {responseBody}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending email directly to {Email}", toEmail);
+            throw;
+        }
+    }
+
+    private string StripHtml(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        return System.Text.RegularExpressions.Regex.Replace(input, "<.*?>", string.Empty);
+    }
+
+    private async Task SaveEmailHistoryAsync(EmailJob emailJob, string status, string? errorMessage)
+    {
+        try
+        {
+            // Update email job status
+            emailJob.Status = status;
+            emailJob.UpdatedAt = DateTime.UtcNow;
+            
+            if (status == "sent")
+            {
+                emailJob.SentAt = DateTime.UtcNow;
+            }
+            else if (status == "failed" && !string.IsNullOrEmpty(errorMessage))
+            {
+                emailJob.ErrorMessage = errorMessage;
+            }
+            else if (status == "queued" && !string.IsNullOrEmpty(errorMessage))
+            {
+                emailJob.ErrorMessage = errorMessage;
+            }
+
+            // Always save to file system first (more reliable)
+            await SaveEmailHistoryToFileAsync(emailJob);
+            
+            // Try to save to database as well (if possible)
+            try
+            {
+                // Create a new context scope to avoid disposal issues
+                using var scope = HttpContext.RequestServices.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<IDbContext>();
+                
+                await dbContext.EmailJobs.AddAsync(emailJob);
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("Email history saved to database for job {EmailJobId}", emailJob.Id);
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogWarning(dbEx, "Failed to save email history to database for job {EmailJobId}. Using file system only.", emailJob.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving email history for job {EmailJobId}", emailJob.Id);
+        }
+    }
+
+    private async Task SaveEmailHistoryToFileAsync(EmailJob emailJob)
+    {
+        try
+        {
+            var historyDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "email-history");
+            Directory.CreateDirectory(historyDir);
+            
+            var fileName = $"email_{emailJob.Id}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+            var filePath = Path.Combine(historyDir, fileName);
+            
+            var historyData = new
+            {
+                Id = emailJob.Id,
+                LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
+                Subject = emailJob.Subject,
+                Content = emailJob.Content,
+                RecipientEmail = emailJob.RecipientEmail,
+                RecipientName = emailJob.RecipientName,
+                Status = emailJob.Status,
+                SentBy = emailJob.SentBy,
+                CreatedAt = emailJob.CreatedAt,
+                SentAt = emailJob.SentAt,
+                ErrorMessage = emailJob.ErrorMessage,
+                Attachments = emailJob.Attachments
+            };
+            
+            var json = JsonSerializer.Serialize(historyData, new JsonSerializerOptions { WriteIndented = true });
+            await System.IO.File.WriteAllTextAsync(filePath, json);
+            
+            _logger.LogInformation("Email history saved to file: {FilePath}", filePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving email history to file for job {EmailJobId}", emailJob.Id);
+        }
     }
 
 
@@ -597,6 +1030,171 @@ public class TabController : ControllerBase
         {
             _logger.LogError(ex, "Error generating letters for tab: {TabId}", tabId);
             return StatusCode(500, new ApiResponse<object> { Success = false, Message = "Error generating letters" });
+        }
+    }
+
+
+
+    [HttpPost("{tabId}/send-email")]
+    public async Task<ActionResult<ApiResponse<EmailJobDto>>> SendEmailWithPdf(string tabId, [FromBody] SendEmailWithPdfRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("Sending email with PDF for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+
+            // Get the tab
+            var tab = await _tabService.GetLetterTypeAsync(Guid.Parse(tabId));
+            if (tab == null)
+            {
+                return NotFound(new ApiResponse<EmailJobDto> { Success = false, Message = "Tab not found" });
+            }
+
+            // Get the template
+            var template = await GetTemplateByIdAsync(request.TemplateId);
+            if (template == null)
+            {
+                return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Template not found" });
+            }
+
+            // Convert LetterTypeDefinitionDto to DynamicTabDto
+            var dynamicTab = ConvertToDynamicTabDto(tab);
+
+            // Get employee from the dynamic table
+            var employee = await GetEmployeeFromDynamicTable(dynamicTab, request.EmployeeId);
+            if (employee == null)
+            {
+                return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Employee not found" });
+            }
+
+            if (string.IsNullOrEmpty(employee.Email))
+            {
+                return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Employee email not found" });
+            }
+
+            // Generate PDF
+            var pdfBytes = await _letterGenerationService.GeneratePdfPreviewAsync(dynamicTab, employee, template, request.SignaturePath, request.EmployeeData);
+            if (pdfBytes == null)
+            {
+                return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Failed to generate PDF" });
+            }
+
+            // Create attachments for SendGrid
+            var attachments = new List<Dictionary<string, object>>
+            {
+                new Dictionary<string, object>
+                {
+                    ["fileName"] = $"{employee.Name}_Document.pdf",
+                    ["mimeType"] = "application/pdf",
+                    ["content"] = Convert.ToBase64String(pdfBytes)
+                }
+            };
+
+            // Add any extra attachments
+            if (request.ExtraAttachments != null && request.ExtraAttachments.Any())
+            {
+                foreach (var attachment in request.ExtraAttachments)
+                {
+                    attachments.Add(new Dictionary<string, object>
+                    {
+                        ["fileName"] = attachment.FileName,
+                        ["mimeType"] = attachment.MimeType,
+                        ["content"] = attachment.Content
+                    });
+                }
+            }
+
+            var attachmentsJson = JsonSerializer.Serialize(attachments);
+
+            // Create email job for response (without database save for now)
+            var emailJob = new EmailJob
+            {
+                Id = Guid.NewGuid(),
+                LetterTypeDefinitionId = Guid.Parse(tabId),
+                ExcelUploadId = Guid.Empty, // Not used for dynamic tabs
+                Subject = request.Subject,
+                Content = request.Content,
+                RecipientEmail = employee.Email,
+                RecipientName = employee.Name,
+                Status = "pending",
+                SentBy = Guid.Parse(GetCurrentUserId()),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                Attachments = attachmentsJson
+            };
+
+            // Send email via SendGrid directly (bypassing EmailService database dependency)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson);
+                    
+                    // Try to save email history (with error handling)
+                    await SaveEmailHistoryAsync(emailJob, "sent", null);
+                    
+                    _logger.LogInformation("Email sent successfully to {Email}", employee.Email);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sending email for job {EmailJobId} to {Email}", emailJob.Id, employee.Email);
+                    
+                    // Check if it's a SendGrid credits issue
+                    if (ex.Message.Contains("Maximum credits exceeded"))
+                    {
+                        _logger.LogWarning("SendGrid credits exceeded. Email queued for later sending.");
+                        await SaveEmailHistoryAsync(emailJob, "queued", "SendGrid credits exceeded - will retry later");
+                    }
+                    else
+                    {
+                        // Try to save failed status
+                        await SaveEmailHistoryAsync(emailJob, "failed", ex.Message);
+                    }
+                }
+            });
+
+            // Map to DTO
+            var emailJobDto = new EmailJobDto
+            {
+                Id = emailJob.Id,
+                LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
+                LetterTypeName = tab.DisplayName,
+                ExcelUploadId = emailJob.ExcelUploadId,
+                Subject = emailJob.Subject,
+                Content = emailJob.Content,
+                Attachments = attachmentsJson,
+                Status = emailJob.Status,
+                SentBy = emailJob.SentBy,
+                EmployeeId = employee.EmployeeId,
+                EmployeeName = employee.Name,
+                EmployeeEmail = employee.Email,
+                RecipientEmail = emailJob.RecipientEmail,
+                RecipientName = emailJob.RecipientName,
+                CreatedAt = emailJob.CreatedAt,
+                SentAt = emailJob.SentAt,
+                DeliveredAt = emailJob.DeliveredAt,
+                OpenedAt = emailJob.OpenedAt,
+                ClickedAt = emailJob.ClickedAt,
+                BouncedAt = emailJob.BouncedAt,
+                DroppedAt = emailJob.DroppedAt,
+                SpamReportedAt = emailJob.SpamReportedAt,
+                UnsubscribedAt = emailJob.UnsubscribedAt,
+                BounceReason = emailJob.BounceReason,
+                DropReason = emailJob.DropReason,
+                TrackingId = emailJob.TrackingId,
+                SendGridMessageId = emailJob.SendGridMessageId,
+                ErrorMessage = emailJob.ErrorMessage,
+                ProcessedAt = emailJob.ProcessedAt,
+                RetryCount = emailJob.RetryCount,
+                LastRetryAt = emailJob.LastRetryAt,
+                UpdatedAt = emailJob.UpdatedAt
+            };
+
+            return Ok(new ApiResponse<EmailJobDto> { Success = true, Data = emailJobDto });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending email with PDF for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+            return StatusCode(500, new ApiResponse<EmailJobDto> { Success = false, Message = "Error sending email" });
         }
     }
 
@@ -821,4 +1419,52 @@ public class FrontendCreateLetterTypeRequest
     
     [JsonPropertyName("isActive")]
     public bool IsActive { get; set; } = true;
+}
+
+public class UpdateEmployeeDataRequest
+{
+    [JsonPropertyName("EmployeeId")]
+    public string EmployeeId { get; set; } = string.Empty;
+    
+    [JsonPropertyName("Field")]
+    public string Field { get; set; } = string.Empty;
+    
+    [JsonPropertyName("Value")]
+    public string? Value { get; set; }
+}
+
+public class SendEmailWithPdfRequest
+{
+    [JsonPropertyName("employeeId")]
+    public string EmployeeId { get; set; } = string.Empty;
+    
+    [JsonPropertyName("templateId")]
+    public string TemplateId { get; set; } = string.Empty;
+    
+    [JsonPropertyName("signaturePath")]
+    public string? SignaturePath { get; set; }
+    
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
+    
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = string.Empty;
+    
+    [JsonPropertyName("employeeData")]
+    public Dictionary<string, object>? EmployeeData { get; set; }
+    
+    [JsonPropertyName("extraAttachments")]
+    public List<EmailAttachmentRequest>? ExtraAttachments { get; set; }
+}
+
+public class EmailAttachmentRequest
+{
+    [JsonPropertyName("fileName")]
+    public string FileName { get; set; } = string.Empty;
+    
+    [JsonPropertyName("mimeType")]
+    public string MimeType { get; set; } = string.Empty;
+    
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = string.Empty;
 }

@@ -5032,13 +5032,9 @@
   --sidebar-accent-foreground: oklch(.205 0 0);
   --sidebar-border: oklch(.922 0 0);
   --sidebar-ring: oklch(.708 0 0);
-  --neon-blue: #00d4ff;
-  --neon-green: #0f8;
-  --neon-purple: #8b5cf6;
-  --neon-pink: #ff0080;
-  --glass-bg: #ffffff1a;
-  --glass-border: #fff3;
-  --glass-shadow: #0000001a;
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-shadow: rgba(0, 0, 0, 0.1);
 }
 
 .dark {
@@ -5070,7 +5066,7 @@
   --chart-5: oklch(.645 .246 16.439);
   --sidebar: #0d1117;
   --sidebar-foreground: oklch(.985 0 0);
-  --sidebar-primary: var(--neon-blue);
+  --sidebar-primary: #3b82f6;
   --sidebar-primary-foreground: oklch(.985 0 0);
   --sidebar-accent: #21262d;
   --sidebar-accent-foreground: oklch(.985 0 0);
@@ -5092,27 +5088,52 @@ html {
   box-shadow: 0 8px 32px var(--glass-shadow);
 }
 
-.neon-glow {
-  transition: all .3s;
-}
-
-.neon-glow:hover {
-  box-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue), 0 0 80px var(--neon-blue);
-}
-
-.neon-border {
-  border: 1px solid var(--neon-blue);
-  box-shadow: 0 0 10px var(--neon-blue);
-}
-
-.neon-text {
-  color: var(--neon-blue);
-  text-shadow: 0 0 10px var(--neon-blue);
-}
-
+/* Gradient background for logo */
 .gradient-bg {
-  background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple), var(--neon-green));
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
 }
+
+/* Neon border effects - subtle glow only */
+.neon-border-blue {
+  border: 1px solid #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  transition: all 0.3s ease;
+}
+
+.neon-border-blue:hover {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+}
+
+.neon-border-green {
+  border: 1px solid #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+  transition: all 0.3s ease;
+}
+
+.neon-border-green:hover {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+}
+
+.neon-border-purple {
+  border: 1px solid #8b5cf6;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+  transition: all 0.3s ease;
+}
+
+.neon-border-purple:hover {
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.5);
+}
+
+.neon-border-pink {
+  border: 1px solid #ec4899;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.3);
+  transition: all 0.3s ease;
+}
+
+.neon-border-pink:hover {
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.5);
+}
+
 
 .dialog-panel {
   background: var(--card);
@@ -5181,7 +5202,7 @@ html {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neon-blue);
+  background: #3b82f6;
 }
 
 @property --tw-translate-x {

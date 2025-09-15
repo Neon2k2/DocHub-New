@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, FileText, Mail, Database } from 'lucide-react';
+import { Upload, FileText, Mail, Database, Edit3, Eye } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -11,6 +11,7 @@ import { EmployeeSelector } from '../er/EmployeeSelector';
 import { MultiStepTemplateDialog } from './MultiStepTemplateDialog';
 import { SimplePreviewDialog } from './SimplePreviewDialog';
 import { EmailComposerDialog } from '../er/EmailComposerDialog';
+import { EnhancedEmailDialog } from './EnhancedEmailDialog';
 import { Employee, apiService, DynamicField, FieldType, DynamicDocumentGenerationRequest, DynamicEmailRequest, EmailPriority, TabStatistics, TabDataRecord } from '../../services/api.service';
 import { DynamicTab } from '../../services/tab.service';
 import { DocumentTemplate, GeneratedDocument, EmailJob, Signature } from '../../services/document.service';
@@ -43,11 +44,21 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   
   // Email state
   const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [showEnhancedEmailDialog, setShowEnhancedEmailDialog] = useState(false);
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   
   // Generating state
   const [showGeneratingDialog, setShowGeneratingDialog] = useState(false);
   const [generatingProgress, setGeneratingProgress] = useState(0);
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  
+  // Table editing state
+  const [editingCell, setEditingCell] = useState<{rowIndex: number, fieldKey: string} | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [emailError, setEmailError] = useState<string>('');
   
   // Statistics state
   const [statistics, setStatistics] = useState<TabStatistics>({
@@ -59,6 +70,140 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   
   // Fetch tab data for this tab
   const { data: tabData, loading: dataLoading, totalCount } = useTabData(tab.id);
+  
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Function to update employee data
+  const updateEmployeeData = async (employeeId: string, fieldKey: string, newValue: string) => {
+    try {
+      setIsUpdating(true);
+      
+      // Find the field configuration to get the correct field name
+      const field = dynamicFields.find(f => f.fieldKey === fieldKey);
+      const fieldName = field?.fieldName || fieldKey;
+      
+      console.log('Updating employee data:', {
+        employeeId,
+        fieldKey,
+        fieldName,
+        newValue,
+        tabId: tab.id
+      });
+      
+      // Use the tab-specific employee data update endpoint
+      const response = await apiService.request<{success: boolean; message?: string}>(`/Tab/employee-data/${tab.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          EmployeeId: employeeId,
+          Field: fieldName, // Use fieldName instead of fieldKey
+          Value: newValue
+        })
+      });
+      
+      if (response.success) {
+        toast.success('Employee data updated successfully');
+        // Refresh the data without reloading the page
+        await loadData();
+      } else {
+        console.error('Update failed:', response);
+        toast.error(`Failed to update employee data: ${response.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error updating employee data:', error);
+      
+      // Try to extract more detailed error information
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+        console.error('Response headers:', error.response.headers);
+      }
+      
+      // Check if it's a 400 error and try to get the specific error message
+      if (error.message && error.message.includes('400')) {
+        try {
+          // Find the field configuration to get the correct field name (re-declare for scope)
+          const field = dynamicFields.find(f => f.fieldKey === fieldKey);
+          const fieldNameForError = field?.fieldName || fieldKey;
+          
+          const errorResponse = await fetch(`http://localhost:5120/api/Tab/employee-data/${tab.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+              EmployeeId: employeeId,
+              Field: fieldNameForError,
+              Value: newValue
+            })
+          });
+          
+          const errorText = await errorResponse.text();
+          console.error('Detailed 400 error response:', errorText);
+          toast.error(`400 Error: ${errorText}`);
+        } catch (fetchError) {
+          console.error('Could not fetch detailed error:', fetchError);
+          toast.error(`Error updating employee data: ${error.message || 'Unknown error'}`);
+        }
+      } else {
+        toast.error(`Error updating employee data: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+  
+  // Handle cell double-click to start editing
+  const handleCellDoubleClick = (rowIndex: number, fieldKey: string, currentValue: string) => {
+    if (!isEditMode) return;
+    
+    setEditingCell({ rowIndex, fieldKey });
+    setEditingValue(currentValue);
+    setEmailError(''); // Clear any previous email errors
+  };
+  
+  // Handle cell edit completion
+  const handleCellEditComplete = async (employeeId: string, fieldKey: string) => {
+    if (editingValue !== '') {
+      // Validate email field specifically
+      if (fieldKey === 'EMAIL' && !validateEmail(editingValue)) {
+        setEmailError('Please enter a valid email address');
+        toast.error('Please enter a valid email address');
+        return; // Don't save if email is invalid
+      }
+      
+      // Clear email error if validation passes
+      setEmailError('');
+      
+      // Find the actual EMP ID from the employee data
+      const employee = mappedEmployees.find(emp => emp.id === employeeId);
+      const actualEmpId = employee?.employeeId || employeeId;
+      
+      console.log('Using actual EMP ID:', actualEmpId, 'for employee:', employeeId);
+      
+      await updateEmployeeData(actualEmpId, fieldKey, editingValue);
+    }
+    setEditingCell(null);
+    setEditingValue('');
+    setEmailError(''); // Clear error when closing edit mode
+  };
+  
+  // Handle Enter key press
+  const handleKeyPress = (e: React.KeyboardEvent, employeeId: string, fieldKey: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // Prevent form submission
+      handleCellEditComplete(employeeId, fieldKey);
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); // Prevent any default behavior
+      setEditingCell(null);
+      setEditingValue('');
+    }
+    // Don't prevent default for other keys (like typing)
+  };
   
   // Map data to Employee format for display - prioritize Excel data if available
   const mappedEmployees = useMemo(() => {
@@ -248,7 +393,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     }
 
     setSelectedEmployees(employees);
-    setShowEmailDialog(true);
+    setShowEnhancedEmailDialog(true);
   };
 
   const handleViewRequests = async () => {
@@ -430,8 +575,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">{tab.name}</h1>
-          <p className="text-gray-400 mt-1">{tab.description}</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{tab.name}</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">{tab.description}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -451,7 +596,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-400">Total Requests</p>
-                <p className="text-2xl font-bold text-white">{statistics.totalRequests}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.totalRequests}</p>
               </div>
               <FileText className="h-8 w-8 text-blue-500" />
             </div>
@@ -463,7 +608,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-400">Pending</p>
-                <p className="text-2xl font-bold text-white">{statistics.pendingRequests}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.pendingRequests}</p>
               </div>
               <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center">
                 <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -477,7 +622,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-400">Templates</p>
-                <p className="text-2xl font-bold text-white">{statistics.templatesCount}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.templatesCount}</p>
               </div>
               <div className="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center">
                 <FileText className="h-4 w-4 text-white" />
@@ -491,7 +636,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-400">Signatures</p>
-                <p className="text-2xl font-bold text-white">{statistics.signaturesCount}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.signaturesCount}</p>
               </div>
               <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center">
                 <div className="h-4 w-4 text-white">✍</div>
@@ -502,30 +647,33 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       </div>
 
       {/* Action Tabs */}
-      <div className="flex border-b border-gray-700">
+      <div className="flex border-b border-gray-300 dark:border-gray-700">
         <button
           onClick={handleGenerateLetters}
           disabled={selectedEmployees.length === 0}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ color: '#374151' }}
         >
-          <FileText className="h-4 w-4" />
-          Generate Letters
+          <FileText className="h-4 w-4" style={{ color: '#374151' }} />
+          <span style={{ color: '#374151', fontWeight: '500' }}>Generate Letters</span>
         </button>
         
         <button
           onClick={handleViewRequests}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-white border-b-2 border-blue-500"
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-900 dark:text-white border-b-2 border-blue-500"
+          style={{ color: '#111827' }}
         >
-          <FileText className="h-4 w-4" />
-          View Requests
+          <FileText className="h-4 w-4" style={{ color: '#111827' }} />
+          <span style={{ color: '#111827', fontWeight: '500' }}>View Requests</span>
         </button>
         
         <button
           onClick={handleHistory}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600"
+          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600"
+          style={{ color: '#374151' }}
         >
-          <FileText className="h-4 w-4" />
-          History
+          <FileText className="h-4 w-4" style={{ color: '#374151' }} />
+          <span style={{ color: '#374151', fontWeight: '500' }}>History</span>
         </button>
       </div>
 
@@ -536,8 +684,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center gap-3">
               <Database className="h-6 w-6 text-blue-500" />
               <div>
-                <h3 className="text-lg font-semibold text-white">Employee Data</h3>
-                <p className="text-sm text-gray-400">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Employee Data</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   {dataSourceType === 'excel' && excelData && excelData.data
                     ? `Loaded ${excelData.data.length} rows from ${excelData.fileName}`
                     : 'Upload Excel file to populate employee data for this tab'
@@ -550,33 +698,41 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                 <Button
                   onClick={handleGenerateLetters}
                   className="bg-green-600 hover:bg-green-700 text-white"
+                  style={{ color: 'white', backgroundColor: '#059669' }}
                 >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Generate Letters ({selectedEmployees.length})
+                  <FileText className="h-4 w-4 mr-2" style={{ color: 'white' }} />
+                  <span style={{ color: 'white', fontWeight: '500' }}>Generate Letters ({selectedEmployees.length})</span>
                 </Button>
                 <Button
                   onClick={() => handleSendEmail(selectedEmployees)}
                   className="bg-purple-600 hover:bg-purple-700 text-white"
+                  style={{ color: 'white', backgroundColor: '#7c3aed' }}
                 >
-                  <Mail className="h-4 w-4 mr-2" />
-                  Send Email ({selectedEmployees.length})
+                  <Mail className="h-4 w-4 mr-2" style={{ color: 'white' }} />
+                  <span style={{ color: 'white', fontWeight: '500' }}>Send Email ({selectedEmployees.length})</span>
                 </Button>
                 <Button
                   onClick={() => setShowExcelUpload(true)}
                   variant="outline"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                  className="border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+                  style={{ 
+                    color: '#374151',
+                    borderColor: '#d1d5db',
+                    backgroundColor: 'transparent'
+                  }}
                 >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload New File
+                  <Upload className="h-4 w-4 mr-2" style={{ color: '#374151' }} />
+                  <span style={{ color: '#374151', fontWeight: '500' }}>Upload New File</span>
                 </Button>
               </div>
             ) : (
               <Button
                 onClick={() => setShowExcelUpload(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                style={{ color: 'white', backgroundColor: '#2563eb' }}
               >
-                <Upload className="h-4 w-4 mr-2" />
-                {excelData ? 'Upload New File' : 'Upload Excel File'}
+                <Upload className="h-4 w-4 mr-2" style={{ color: 'white' }} />
+                <span style={{ color: 'white', fontWeight: '500' }}>{excelData ? 'Upload New File' : 'Upload Excel File'}</span>
               </Button>
             )}
           </div>
@@ -588,20 +744,48 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       <Card className="glass-panel border-glass-border">
         <CardContent className="p-6">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white mb-2">Select Employees</h3>
-            <p className="text-sm text-gray-400 mb-4">Choose employees to generate letters for</p>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Select Employees</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Choose employees to generate letters for</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300" style={{ color: '#374151' }}>
+                  {isEditMode ? 'View Mode' : 'Edit Mode'}
+                </span>
+                <button
+                  onClick={() => setIsEditMode(!isEditMode)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    isEditMode ? 'bg-blue-500' : 'bg-gray-300'
+                  }`}
+                  style={{
+                    backgroundColor: isEditMode ? '#3b82f6' : '#d1d5db'
+                  }}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-all duration-200 ease-in-out ${
+                      isEditMode ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                    style={{
+                      transform: isEditMode ? 'translateX(1rem)' : 'translateX(0.125rem)',
+                      boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                </button>
+              </div>
+            </div>
             
             {/* Search and Filters */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1">
                 <Input
                   placeholder="Search employees by name, ID, or department..."
-                  className="bg-gray-800 border-gray-600 text-white placeholder-gray-400"
+                  className="bg-white border-gray-300 text-gray-900 placeholder-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                 />
               </div>
               <Button
                 variant="outline"
-                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                className="border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
               >
                 Filters
               </Button>
@@ -611,17 +795,21 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           {/* Dynamic Table */}
           {dynamicFields.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-gray-700">
-                    <th className="text-left p-3 text-sm font-medium text-gray-300">Select</th>
-                    {dynamicFields.map((field) => (
-                      <th key={field.id} className="text-left p-3 text-sm font-medium text-gray-300">
-                        {field.displayName}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+              <table className={`w-full border-collapse ${isEditMode ? 'neon-border-blue rounded-lg' : ''}`}>
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left p-3 text-sm font-medium text-gray-300">Select</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-300">EMP ID</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-300">EMAIL</th>
+                      {dynamicFields
+                        .filter(field => field.fieldKey !== 'EMP ID' && field.fieldKey !== 'EMAIL')
+                        .map((field) => (
+                          <th key={field.id} className="text-left p-3 text-sm font-medium text-gray-300">
+                            {field.displayName}
+                          </th>
+                        ))}
+                    </tr>
+                  </thead>
                 <tbody>
                   {mappedEmployees.length > 0 ? (
                     mappedEmployees.map((employee, index) => (
@@ -649,7 +837,71 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                             checked={selectedEmployees.some(emp => emp.id === employee.id)}
                           />
                         </td>
-                        {dynamicFields.map((field) => {
+                        {/* EMP ID Column */}
+                        <td 
+                          className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMP ID' ? 'bg-blue-900/20' : ''}`}
+                          onDoubleClick={() => handleCellDoubleClick(index, 'EMP ID', employee.employeeId || '')}
+                        >
+                          {editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMP ID' ? (
+                            <input
+                              type="text"
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyPress(e, employee.id, 'EMP ID')}
+                              onBlur={() => handleCellEditComplete(employee.id, 'EMP ID')}
+                              className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              style={{ 
+                                color: '#111827',
+                                backgroundColor: '#ffffff'
+                              }}
+                              autoFocus
+                              disabled={isUpdating}
+                            />
+                          ) : (
+                            <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
+                              {employee.employeeId || '-'}
+                            </span>
+                          )}
+                        </td>
+                        {/* EMAIL Column */}
+                        <td 
+                          className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMAIL' ? 'bg-blue-900/20' : ''}`}
+                          onDoubleClick={() => handleCellDoubleClick(index, 'EMAIL', employee.email || '')}
+                        >
+                          {editingCell?.rowIndex === index && editingCell?.fieldKey === 'EMAIL' ? (
+                            <div>
+                              <input
+                                type="email"
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onKeyDown={(e) => handleKeyPress(e, employee.id, 'EMAIL')}
+                                onBlur={() => handleCellEditComplete(employee.id, 'EMAIL')}
+                                className={`w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
+                                  emailError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
+                                }`}
+                                style={{ 
+                                  color: '#111827',
+                                  backgroundColor: '#ffffff'
+                                }}
+                                autoFocus
+                                disabled={isUpdating}
+                              />
+                              {emailError && (
+                                <div className="text-red-500 text-xs mt-1">
+                                  {emailError}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
+                              {employee.email || '-'}
+                            </span>
+                          )}
+                        </td>
+                        {/* Other Dynamic Fields */}
+                        {dynamicFields
+                          .filter(field => field.fieldKey !== 'EMP ID' && field.fieldKey !== 'EMAIL')
+                          .map((field) => {
                           // Map fieldKey to Employee property
                           let value = '';
                           switch (field.fieldKey) {
@@ -681,12 +933,37 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                               value = employee[field.fieldKey as keyof Employee] as string || '';
                           }
                           
+                          const isEditing = editingCell?.rowIndex === index && editingCell?.fieldKey === field.fieldKey;
+                          const displayValue = field.fieldType === 'Date' && value 
+                            ? new Date(value).toLocaleDateString()
+                            : value || '-';
+                          
                           return (
-                            <td key={field.id} className="p-3 text-sm text-gray-300">
-                              {field.fieldType === 'Date' && value 
-                                ? new Date(value).toLocaleDateString()
-                                : value || '-'
-                              }
+                            <td 
+                              key={field.id} 
+                              className={`p-3 text-sm text-gray-300 ${isEditMode ? 'cursor-pointer hover:bg-gray-800/30 group' : ''} ${isEditing ? 'bg-blue-900/20' : ''}`}
+                              onDoubleClick={() => handleCellDoubleClick(index, field.fieldKey, value)}
+                            >
+                              {isEditing ? (
+                                <input
+                                  type={field.fieldType === 'Number' ? 'number' : field.fieldType === 'Date' ? 'date' : 'text'}
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onKeyDown={(e) => handleKeyPress(e, employee.id, field.fieldKey)}
+                                  onBlur={() => handleCellEditComplete(employee.id, field.fieldKey)}
+                                  className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  style={{ 
+                                    color: '#111827',
+                                    backgroundColor: '#ffffff'
+                                  }}
+                                  autoFocus
+                                  disabled={isUpdating}
+                                />
+                              ) : (
+                                <span className={isEditMode ? 'group-hover:text-blue-400 transition-colors duration-200' : ''}>
+                                  {displayValue}
+                                </span>
+                              )}
                             </td>
                           );
                         })}
@@ -694,7 +971,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={dynamicFields.length + 1} className="p-8 text-center text-gray-400">
+                      <td colSpan={dynamicFields.length + 3} className="p-8 text-center text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
                             <div className="h-8 w-8 text-gray-600">👥</div>
@@ -763,6 +1040,19 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           onOpenChange={setShowEmailDialog}
           employees={selectedEmployees || []}
           onEmailsSent={() => {}}
+        />
+      )}
+
+      {showEnhancedEmailDialog && (
+        <EnhancedEmailDialog
+          open={showEnhancedEmailDialog}
+          onOpenChange={setShowEnhancedEmailDialog}
+          employees={selectedEmployees || []}
+          tabId={tab.id}
+          onEmailsSent={(jobs) => {
+            setEmailJobs(jobs);
+            toast.success(`Successfully sent ${jobs.length} emails`);
+          }}
         />
       )}
 

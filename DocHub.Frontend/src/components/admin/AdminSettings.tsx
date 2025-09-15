@@ -147,7 +147,7 @@ export function AdminSettings() {
         <Button 
           onClick={handleSaveSettings}
           disabled={saving}
-          className="neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white transition-all duration-300"
+          className="border border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 transition-all duration-300"
         >
           {saving ? (
             <Loading size="sm" className="mr-2" />
@@ -163,7 +163,7 @@ export function AdminSettings() {
         <Card className="glass-panel border-glass-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-neon-blue" />
+              <Settings className="h-5 w-5 text-blue-600" />
               System Configuration
             </CardTitle>
             <CardDescription>
@@ -283,7 +283,7 @@ export function AdminSettings() {
         <Card className="glass-panel border-glass-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-neon-green" />
+              <Activity className="h-5 w-5 text-green-600" />
               System Status
             </CardTitle>
             <CardDescription>
@@ -359,7 +359,7 @@ export function AdminSettings() {
             <div className="text-sm text-muted-foreground">
               {users.length} total users
             </div>
-            <Button className="neon-border bg-card text-neon-blue hover:bg-neon-blue hover:text-white transition-all duration-300">
+            <Button className="border border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 transition-all duration-300">
               Add New User
             </Button>
           </div>
