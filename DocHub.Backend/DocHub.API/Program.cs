@@ -18,6 +18,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add memory cache
+builder.Services.AddMemoryCache();
+
 // Database
 builder.Services.AddDbContext<DocHubDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), 
@@ -48,6 +51,7 @@ builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<ISignatureCleanupService, SignatureCleanupService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+builder.Services.AddScoped<ICacheService, CacheService>();
 builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
 builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
 builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();

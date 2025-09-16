@@ -1,4 +1,5 @@
 import { apiService, LetterTypeDefinition, DynamicField, FieldType } from './api.service';
+import { cacheService } from './cache.service';
 
 export interface DynamicTab {
   id: string;
@@ -41,9 +42,6 @@ export interface TabSignature {
 class TabService {
 
   private templates: TabTemplate[] = [];
-  private tabsCache: DynamicTab[] | null = null;
-  private lastCacheTime = 0;
-  private cacheDuration = 30000; // 30 seconds
   private activeRequest: Promise<DynamicTab[]> | null = null;
 
   private signatures: TabSignature[] = [
@@ -67,10 +65,13 @@ class TabService {
 
   // Tab Management - Now using Dynamic Letter Types
   async getTabs(): Promise<DynamicTab[]> {
+    const cacheKey = 'tabs_all';
+    
     // Check cache first
-    const now = Date.now();
-    if (this.tabsCache && (now - this.lastCacheTime) < this.cacheDuration) {
-      return this.tabsCache;
+    const cachedTabs = cacheService.get<DynamicTab[]>(cacheKey);
+    if (cachedTabs) {
+      console.log('📦 [TAB-SERVICE] Returning cached tabs:', cachedTabs.length);
+      return cachedTabs;
     }
 
     // If there's already a request in progress, return it
@@ -83,8 +84,8 @@ class TabService {
     
     try {
       const result = await this.activeRequest;
-      this.tabsCache = result;
-      this.lastCacheTime = now;
+      // Cache for 2 minutes
+      cacheService.set(cacheKey, result, 2 * 60 * 1000);
       return result;
     } finally {
       this.activeRequest = null;
@@ -92,8 +93,7 @@ class TabService {
   }
 
   private clearCache(): void {
-    this.tabsCache = null;
-    this.lastCacheTime = 0;
+    cacheService.invalidatePattern('tabs_');
   }
 
   private async fetchTabsFromAPI(): Promise<DynamicTab[]> {
@@ -160,9 +160,21 @@ class TabService {
   }
 
   async getActiveTabs(): Promise<DynamicTab[]> {
+    const cacheKey = 'tabs_active';
+    
+    // Check cache first
+    const cachedTabs = cacheService.get<DynamicTab[]>(cacheKey);
+    if (cachedTabs) {
+      console.log('📦 [TAB-SERVICE] Returning cached active tabs:', cachedTabs.length);
+      return cachedTabs;
+    }
+
     try {
       const tabs = await this.getTabs();
-      return tabs.filter(tab => tab.isActive);
+      const activeTabs = tabs.filter(tab => tab.isActive);
+      // Cache for 1 minute
+      cacheService.set(cacheKey, activeTabs, 60 * 1000);
+      return activeTabs;
     } catch (error) {
       console.error('Failed to load active tabs:', error);
       return [];
@@ -170,6 +182,15 @@ class TabService {
   }
 
   async getActiveTabById(id: string): Promise<DynamicTab | null> {
+    const cacheKey = `tab_${id}`;
+    
+    // Check cache first
+    const cachedTab = cacheService.get<DynamicTab>(cacheKey);
+    if (cachedTab) {
+      console.log('📦 [TAB-SERVICE] Returning cached tab:', cachedTab.name);
+      return cachedTab;
+    }
+
     try {
       console.log('🔍 [TAB-SERVICE] Getting tab by ID:', id);
       
@@ -180,6 +201,8 @@ class TabService {
       const tab = allTabs.find(t => t.id === id);
       if (tab && tab.isActive) {
         console.log('✅ [TAB-SERVICE] Found active tab in list:', tab.name);
+        // Cache for 5 minutes
+        cacheService.set(cacheKey, tab, 5 * 60 * 1000);
         return tab;
       }
       
@@ -212,6 +235,8 @@ class TabService {
           };
           
           console.log('✅ [TAB-SERVICE] Found active tab via direct API call:', mappedTab.name);
+          // Cache for 5 minutes
+          cacheService.set(cacheKey, mappedTab, 5 * 60 * 1000);
           return mappedTab;
         } else {
           console.log('❌ [TAB-SERVICE] Tab found but not active');
@@ -547,12 +572,23 @@ class TabService {
    * Get tabs filtered by department
    */
   async getTabsByDepartment(department: string): Promise<DynamicTab[]> {
+    const cacheKey = `tabs_department_${department}`;
+    
+    // Check cache first
+    const cachedTabs = cacheService.get<DynamicTab[]>(cacheKey);
+    if (cachedTabs) {
+      console.log('📦 [TAB-SERVICE] Returning cached tabs for department:', department, cachedTabs.length);
+      return cachedTabs;
+    }
+
     try {
       console.log('🔍 [TAB-SERVICE] Getting tabs for department:', department);
       const tabs = await this.getAllTabs();
       console.log('📊 [TAB-SERVICE] All tabs received:', tabs);
       const filteredTabs = tabs.filter(tab => tab.department === department);
       console.log('✅ [TAB-SERVICE] Filtered tabs for department:', filteredTabs);
+      // Cache for 2 minutes
+      cacheService.set(cacheKey, filteredTabs, 2 * 60 * 1000);
       return filteredTabs;
     } catch (error) {
       console.error('Failed to get tabs by department:', error);

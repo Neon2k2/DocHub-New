@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using SendGrid;
 using SendGrid.Helpers.Mail;
 using DocHub.Infrastructure.Data;
+using Microsoft.Extensions.Caching.Memory;
+using DocHub.Application.Services;
 
 namespace DocHub.API.Controllers;
 
@@ -31,8 +33,10 @@ public class TabController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly ILogger<TabController> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly ICacheService _cacheService;
+    private readonly IExcelProcessingService _excelProcessingService;
 
-    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IDepartmentAccessService departmentAccessService, IRealTimeService realTimeService, IConfiguration configuration, ILogger<TabController> logger, IServiceProvider serviceProvider)
+    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IDepartmentAccessService departmentAccessService, IRealTimeService realTimeService, IConfiguration configuration, ILogger<TabController> logger, IServiceProvider serviceProvider, ICacheService cacheService, IExcelProcessingService excelProcessingService)
     {
         _tabService = tabService;
         _letterGenerationService = letterGenerationService;
@@ -45,6 +49,67 @@ public class TabController : ControllerBase
         _configuration = configuration;
         _logger = logger;
         _serviceProvider = serviceProvider;
+        _cacheService = cacheService;
+        _excelProcessingService = excelProcessingService;
+    }
+
+    [HttpGet("{tabId}/insights")]
+    public async Task<ActionResult<ApiResponse<object>>> GetTabInsights(string tabId)
+    {
+        try
+        {
+            if (!Guid.TryParse(tabId, out var tabGuid))
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("Invalid tab ID"));
+            }
+
+            var cacheKey = $"tab_insights_{tabId}";
+            var cached = _cacheService.Get<object>(cacheKey);
+            if (cached != null)
+            {
+                Response.Headers["Cache-Control"] = "public, max-age=60";
+                return Ok(ApiResponse<object>.SuccessResult(cached));
+            }
+
+            // Total employees from latest Excel upload for this tab if available
+            int totalEmployees = 0;
+            try
+            {
+                var uploads = await _excelProcessingService.GetExcelUploadsAsync(tabGuid);
+                var latest = uploads?.OrderByDescending(u => u.UploadedAt).FirstOrDefault();
+                if (latest != null)
+                {
+                    var excelPreview = await _excelProcessingService.PreviewExcelAsync(latest.Id, 10000);
+                    // Preview returns a stream; alternatively use GetExcelHeadersAsync + AnalyzeExcelDataAsync if available
+                    // Fallback: use metadata total count if available
+                    var metadata = await _excelProcessingService.GetExcelMetadataAsync(latest.Id);
+                    if (metadata != null && metadata.TryGetValue("TotalRows", out var totalRowsObj) && int.TryParse(totalRowsObj?.ToString(), out var totalRows))
+                    {
+                        totalEmployees = totalRows;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[INSIGHTS] Failed to derive total employees from Excel for tab {TabId}", tabId);
+            }
+
+            // Email jobs for this tab
+            var jobs = await _dbContext.EmailJobs.Where(e => e.LetterTypeDefinitionId == tabGuid).ToListAsync();
+            var totalMailSent = jobs.Count(e => e.Status == "sent" || e.Status == "delivered");
+            var pending = jobs.Count(e => e.Status != "sent" && e.Status != "delivered");
+            var notDelivered = jobs.Count(e => e.Status == "bounced" || e.Status == "dropped" || e.Status == "failed");
+
+            var result = new { totalEmployees, totalMailSent, pending, notDelivered };
+            _cacheService.Set(cacheKey, result, TimeSpan.FromMinutes(2));
+            Response.Headers["Cache-Control"] = "public, max-age=60";
+            return Ok(ApiResponse<object>.SuccessResult(result));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[INSIGHTS] Error computing insights for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<object>.ErrorResult("Failed to compute insights"));
+        }
     }
 
     // Letter Type Management Endpoints
@@ -684,6 +749,25 @@ public class TabController : ControllerBase
         {
             _logger.LogInformation("Getting email history for tab: {TabId}, page: {Page}, pageSize: {PageSize}", tabId, page, pageSize);
 
+            // Create cache key
+            var cacheKey = $"email_history_{tabId}_{page}_{pageSize}";
+            
+            // Try to get from cache first
+            var cachedEmailJobs = _cacheService.Get<IEnumerable<EmailJobDto>>(cacheKey);
+            if (cachedEmailJobs != null)
+            {
+                _logger.LogInformation("📦 [CACHE] Returning cached email history for tab {TabId}, page {Page}: {Count} items", tabId, page, cachedEmailJobs.Count());
+                var etag = GenerateEtag(cachedEmailJobs);
+                Response.Headers["ETag"] = etag;
+                Response.Headers["Cache-Control"] = "public, max-age=120"; // 2 minutes client cache
+                var requestEtag = Request.Headers["If-None-Match"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(requestEtag) && requestEtag == etag)
+                {
+                    return StatusCode(StatusCodes.Status304NotModified);
+                }
+                return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = cachedEmailJobs });
+            }
+
             // Try to get from database first
             try
             {
@@ -735,6 +819,15 @@ public class TabController : ControllerBase
                 }).ToList();
 
                 _logger.LogInformation("Returning {Count} email job DTOs for tab {TabId}", emailJobDtos.Count, tabId);
+                
+                // Cache the results for 5 minutes
+                _cacheService.Set(cacheKey, emailJobDtos, TimeSpan.FromMinutes(5));
+                var etag = GenerateEtag(emailJobDtos);
+                Response.Headers["ETag"] = etag;
+                Response.Headers["Cache-Control"] = "public, max-age=120";
+                
+                _logger.LogInformation("📦 [CACHE] Cached email history for tab {TabId}, page {Page}: {Count} items", tabId, page, emailJobDtos.Count);
+                
                 return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = emailJobDtos });
             }
             catch (Exception dbEx)
@@ -767,6 +860,14 @@ public class TabController : ControllerBase
                             _logger.LogWarning(fileEx, "Failed to read email history file: {File}", file);
                         }
                     }
+
+                    // Cache file system results too
+                    _cacheService.Set(cacheKey, emailJobDtos, TimeSpan.FromMinutes(3));
+                    var etag = GenerateEtag(emailJobDtos);
+                    Response.Headers["ETag"] = etag;
+                    Response.Headers["Cache-Control"] = "public, max-age=60";
+                    
+                    _logger.LogInformation("📦 [CACHE] Cached file system email history for tab {TabId}, page {Page}: {Count} items", tabId, page, emailJobDtos.Count);
 
                     return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = emailJobDtos });
                 }
@@ -814,6 +915,18 @@ public class TabController : ControllerBase
                User.FindFirst("sub")?.Value ?? 
                User.FindFirst("nameid")?.Value ?? 
                throw new UnauthorizedAccessException("User ID not found in token");
+    }
+
+    private static string GenerateEtag(IEnumerable<EmailJobDto> items)
+    {
+        // Create a weak ETag based on item IDs and last update timestamps
+        var key = string.Join('|', items.Select(i =>
+        {
+            var updatedAtTicks = (i.UpdatedAt == default ? i.CreatedAt : i.UpdatedAt).Ticks;
+            return $"{i.Id}:{updatedAtTicks}";
+        }));
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key));
+        return "W/\"" + Convert.ToHexString(hash) + "\"";
     }
 
     private async Task<string?> SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson, string? ccEmails = null)
@@ -1051,6 +1164,7 @@ public class TabController : ControllerBase
                 var statusUpdate = new EmailStatusUpdate
                 {
                     EmailJobId = emailJob.Id,
+                    LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
                     Status = emailJob.Status,
                     Timestamp = emailJob.UpdatedAt,
                     Reason = emailJob.ErrorMessage,
@@ -1163,6 +1277,12 @@ public class TabController : ControllerBase
                 await contextToUse.SaveChangesAsync();
                 loggerToUse.LogInformation("📧 [BACKGROUND] Email history saved to database for job {EmailJobId} with status {Status}", 
                     emailJob.Id, emailJob.Status);
+                
+                // Invalidate cache for this tab
+                var tabId = emailJob.LetterTypeDefinitionId.ToString();
+                var cachePattern = $"email_history_{tabId}_*";
+                _cacheService.RemovePattern(cachePattern);
+                loggerToUse.LogInformation("📦 [CACHE] Invalidated cache pattern: {Pattern}", cachePattern);
             }
             catch (Exception dbEx)
             {
@@ -1175,6 +1295,7 @@ public class TabController : ControllerBase
                 var statusUpdate = new EmailStatusUpdate
                 {
                     EmailJobId = emailJob.Id,
+                    LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
                     Status = emailJob.Status,
                     Timestamp = emailJob.UpdatedAt,
                     Reason = emailJob.ErrorMessage,
@@ -1454,6 +1575,7 @@ public class TabController : ControllerBase
                     var pendingUpdate = new EmailStatusUpdate
                     {
                         EmailJobId = emailJob.Id,
+                        LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
                         Status = "pending",
                         Timestamp = emailJob.CreatedAt,
                         EmployeeName = emailJob.RecipientName,
@@ -1481,7 +1603,7 @@ public class TabController : ControllerBase
 
             // Capture user ID before starting background task
             var currentUserId = GetCurrentUserId();
-            
+
             // Send email via SendGrid directly (bypassing EmailService database dependency)
             _ = Task.Run(async () =>
             {

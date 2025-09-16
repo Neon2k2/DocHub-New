@@ -3,6 +3,7 @@
 
 import { UserRole } from '../components/Login';
 import { config } from '../config/environment';
+import { cacheService } from './cache.service';
 
 // Dynamic System Types
 export interface LetterTypeDefinition {
@@ -650,46 +651,25 @@ class ApiService {
 
   // Tab Statistics APIs
   async getTabStatistics(tabId: string): Promise<ApiResponse<TabStatistics>> {
-    try {
-      // Get tab data count
-      const tabDataResponse = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?page=1&pageSize=1`);
-      const totalRequests = tabDataResponse.data?.data?.pagination?.totalRecords || 0;
+    const cacheKey = `tab_insights_${tabId}`;
+    const fetcher = async (): Promise<ApiResponse<TabStatistics>> => {
+      try {
+        console.log('📈 [API-SERVICE][INSIGHTS] Fetching server insights for tab:', tabId);
+        const resp = await this.request<ApiResponse<TabStatistics>>(`/Tab/${tabId}/insights`);
+        console.log('📈 [API-SERVICE][INSIGHTS] Server response:', resp);
+        return resp;
+      } catch (error: any) {
+        console.error('❌ [API-SERVICE][INSIGHTS] Error getting tab statistics:', error);
+        return {
+          success: true,
+          data: { totalEmployees: 0, totalMailSent: 0, pending: 0, notDelivered: 0 },
+          error: undefined
+        } as any;
+      }
+    };
 
-      // Get templates count
-      const templatesResponse = await this.request<ApiResponse<DocumentTemplate[]>>('/File/templates');
-      const templatesCount = templatesResponse.data?.length || 0;
-
-      // Get signatures count
-      const signaturesResponse = await this.request<ApiResponse<Signature[]>>('/File/signatures');
-      const signaturesCount = signaturesResponse.data?.length || 0;
-
-      // Get pending requests (requests without generated documents)
-      const pendingResponse = await this.request<ApiResponse<PaginatedResponse<TabDataRecord>>>(`/Tab/${tabId}/data?page=1&pageSize=1000`);
-      const pendingCount = pendingResponse.data?.data?.items?.filter(item => !item.generatedDocumentId).length || 0;
-
-      return {
-        success: true,
-        data: {
-          totalRequests,
-          pendingRequests: pendingCount,
-          templatesCount,
-          signaturesCount
-        },
-        error: undefined
-      };
-    } catch (error: any) {
-      console.error('Error getting tab statistics:', error);
-      return {
-        success: true,
-        data: {
-          totalRequests: 0,
-          pendingRequests: 0,
-          templatesCount: 0,
-          signaturesCount: 0
-        },
-        error: undefined
-      };
-    }
+    // Force revalidate each time for now to diagnose zeros; SWR still returns stale fast
+    return cacheService.getOrFetch<ApiResponse<TabStatistics>>(cacheKey, fetcher, { revalidate: true });
   }
 
   // Document Generation APIs
@@ -1133,7 +1113,10 @@ class ApiService {
   }
 
   async getTabEmailHistory(tabId: string, page: number = 1, pageSize: number = 10): Promise<ApiResponse<EmailJob[]>> {
-    return this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
+    const cacheKey = `email_history_${tabId}_${page}_${pageSize}`;
+    const fetcher = () => this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
+    // SWR: serve stale immediately, revalidate in background
+    return cacheService.getOrFetch<ApiResponse<EmailJob[]>>(cacheKey, fetcher, { revalidate: true });
   }
 
   // Email Template Management
@@ -2042,10 +2025,10 @@ export interface FrontendExcelData {
 }
 
 export interface TabStatistics {
-  totalRequests: number;
-  pendingRequests: number;
-  templatesCount: number;
-  signaturesCount: number;
+  totalEmployees: number;
+  totalMailSent: number;
+  pending: number;
+  notDelivered: number;
 }
 
 export interface DynamicDocumentGenerationResponse {

@@ -14,9 +14,10 @@ interface HeaderProps {
   onModuleChange: (module: 'er' | 'billing') => void;
   currentUser: UserRole;
   onNavigateToWelcome: () => void;
+  onNavigateToTab?: (tabId: string, emailJobId?: string) => void;
 }
 
-export function Header({ activeModule, onModuleChange, currentUser, onNavigateToWelcome }: HeaderProps) {
+export function Header({ activeModule, onModuleChange, currentUser, onNavigateToWelcome, onNavigateToTab }: HeaderProps) {
   const { logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const { isMobile } = useResponsive();
@@ -104,7 +105,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
           </Button>
 
           {/* Notifications */}
-          <NotificationDropdown />
+          <NotificationDropdown onNavigateToTab={onNavigateToTab} />
 
           {/* Profile Dropdown */}
           <DropdownMenu>

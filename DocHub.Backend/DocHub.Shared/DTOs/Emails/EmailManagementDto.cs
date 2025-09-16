@@ -143,6 +143,7 @@ public class EmailJobDto
 public class EmailStatusUpdate
 {
     public Guid EmailJobId { get; set; }
+    public Guid LetterTypeDefinitionId { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
     public string? Reason { get; set; }

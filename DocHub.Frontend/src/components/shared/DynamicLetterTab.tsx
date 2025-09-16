@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, FileText, Mail, Database, Edit3, Eye, MousePointer, CheckCircle, AlertCircle, Clock, X } from 'lucide-react';
+import { Upload, FileText, Mail, Database, Edit3, Eye, MousePointer, CheckCircle, AlertCircle, Clock, X, Users, Send, XCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -54,6 +54,12 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   
   // Tab state
   const [activeTab, setActiveTab] = useState<'employees' | 'history'>('employees');
+  const [highlightedEmailJobId, setHighlightedEmailJobId] = useState<string | null>(null);
+  
+  // Debug activeTab changes
+  useEffect(() => {
+    console.log('📋 [DYNAMIC-TAB] activeTab changed to:', activeTab);
+  }, [activeTab]);
   
   // Generating state
   const [showGeneratingDialog, setShowGeneratingDialog] = useState(false);
@@ -70,10 +76,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   
   // Statistics state
   const [statistics, setStatistics] = useState<TabStatistics>({
-    totalRequests: 0,
-    pendingRequests: 0,
-    templatesCount: 0,
-    signaturesCount: 0
+    totalEmployees: 0,
+    totalMailSent: 0,
+    pending: 0,
+    notDelivered: 0
   });
   
   // Search and filter state
@@ -357,12 +363,15 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   // Load statistics
   const loadStatistics = async () => {
     try {
+      console.log('📈 [DYNAMIC-TAB][INSIGHTS] Loading statistics for tab:', tab.id);
       const response = await apiService.getTabStatistics(tab.id);
+      console.log('📈 [DYNAMIC-TAB][INSIGHTS] API response:', response);
       if (response.success && response.data) {
         setStatistics(response.data);
+        console.log('📈 [DYNAMIC-TAB][INSIGHTS] Statistics set:', response.data);
       }
     } catch (error) {
-      console.error('Error loading statistics:', error);
+      console.error('❌ [DYNAMIC-TAB][INSIGHTS] Error loading statistics:', error);
     }
   };
 
@@ -398,6 +407,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
 
   useEffect(() => {
     console.log('DynamicLetterTab received tab:', tab);
+    console.log('DynamicLetterTab current activeTab:', activeTab);
+    console.log('DynamicLetterTab current highlightedEmailJobId:', highlightedEmailJobId);
     loadData();
     loadStatistics();
     loadEmailTemplate();
@@ -413,6 +424,56 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       }
     };
   }, [tab.id, user]);
+
+  // Check for highlighted email job ID on component mount
+  useEffect(() => {
+    const highlightedId = sessionStorage.getItem('highlightEmailJobId');
+    console.log('🔍 [DYNAMIC-TAB] Checking for highlighted email job ID:', highlightedId);
+    if (highlightedId) {
+      console.log('🔍 [DYNAMIC-TAB] Found highlighted email job ID, switching to history tab:', highlightedId);
+      setHighlightedEmailJobId(highlightedId);
+      setActiveTab('history');
+      setShowEmailHistoryDialog(true); // Also open the history dialog
+      // Clear the session storage after using it
+      sessionStorage.removeItem('highlightEmailJobId');
+      console.log('🔍 [DYNAMIC-TAB] Switched to history tab, opened dialog and cleared session storage');
+    } else {
+      console.log('🔍 [DYNAMIC-TAB] No highlighted email job ID found');
+    }
+  }, []);
+
+  // Listen for storage changes to handle navigation from notifications
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'highlightEmailJobId' && e.newValue) {
+        console.log('🔍 [DYNAMIC-TAB] Storage change detected, highlighted email job ID:', e.newValue);
+        setHighlightedEmailJobId(e.newValue);
+        setActiveTab('history');
+        // Clear the session storage after using it
+        sessionStorage.removeItem('highlightEmailJobId');
+        console.log('🔍 [DYNAMIC-TAB] Switched to history tab via storage change');
+      }
+    };
+
+    // Also listen for custom events (for same-tab navigation)
+    const handleCustomNavigation = (e: CustomEvent) => {
+      if (e.detail?.emailJobId) {
+        console.log('🔍 [DYNAMIC-TAB] Custom navigation event detected, email job ID:', e.detail.emailJobId);
+        setHighlightedEmailJobId(e.detail.emailJobId);
+        setActiveTab('history');
+        setShowEmailHistoryDialog(true); // Also open the history dialog
+        console.log('🔍 [DYNAMIC-TAB] Switched to history tab and opened dialog via custom event');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('navigateToEmailHistory', handleCustomNavigation as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('navigateToEmailHistory', handleCustomNavigation as EventListener);
+    };
+  }, []);
 
   const initializeSignalR = async (user: any) => {
     try {
@@ -536,6 +597,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   };
 
   const handleHistory = async () => {
+    console.log('📋 [DYNAMIC-TAB] History tab clicked, current highlightedEmailJobId:', highlightedEmailJobId);
     try {
       setActiveTab('history');
       await loadEmailHistory();
@@ -738,10 +800,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-400">Total Requests</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.totalRequests}</p>
+                <p className="text-sm font-medium text-gray-400">Total Employees</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.totalEmployees}</p>
               </div>
-              <FileText className="h-8 w-8 text-blue-500" />
+              <Users className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>
@@ -751,11 +813,9 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-400">Pending</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.pendingRequests}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.pending}</p>
               </div>
-              <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center">
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              </div>
+              <Clock className="h-8 w-8 text-orange-500" />
             </div>
           </CardContent>
         </Card>
@@ -764,12 +824,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-400">Templates</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.templatesCount}</p>
+                <p className="text-sm font-medium text-gray-400">Total Mail Sent</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.totalMailSent}</p>
               </div>
-              <div className="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center">
-                <FileText className="h-4 w-4 text-white" />
-              </div>
+              <Send className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
@@ -778,12 +836,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-400">Signatures</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.signaturesCount}</p>
+                <p className="text-sm font-medium text-gray-400">Not Delivered</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.notDelivered}</p>
               </div>
-              <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center">
-                <div className="h-4 w-4 text-white">✍</div>
-              </div>
+              <XCircle className="h-8 w-8 text-red-500" />
             </div>
           </CardContent>
         </Card>
@@ -1452,6 +1508,7 @@ HR Department`}
         onOpenChange={setShowEmailHistoryDialog}
         tabId={tab.id}
         tabName={tab.name}
+        highlightedEmailJobId={highlightedEmailJobId}
       />
     </div>
   );

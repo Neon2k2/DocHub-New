@@ -13,17 +13,21 @@ import { apiService } from '../../services/api.service';
 import { signalRService, EmailStatusUpdate } from '../../services/signalr.service';
 import { useAuth } from '../../contexts/AuthContext';
 import { Loading } from '../ui/loading';
+import { cacheService } from '../../services/cache.service';
 
 interface EmailHistoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tabId: string;
   tabName: string;
+  highlightedEmailJobId?: string | null;
 }
 
-export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: EmailHistoryDialogProps) {
+export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlightedEmailJobId }: EmailHistoryDialogProps) {
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  console.log('📧 [EMAIL-HISTORY] EmailHistoryDialog rendered with highlightedEmailJobId:', highlightedEmailJobId);
   const [filter, setFilter] = useState({
     status: 'all',
     employee: '',
@@ -33,25 +37,33 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
   const [totalPages, setTotalPages] = useState(1);
   const [realTimeUpdates, setRealTimeUpdates] = useState<EmailStatusUpdate[]>([]);
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
+  const [signalRCallback, setSignalRCallback] = useState<((update: EmailStatusUpdate) => void) | null>(null);
 
   const pageSize = 20;
 
   useEffect(() => {
     if (open) {
+      // Clear cache and reload fresh data when dialog opens
+      cacheService.invalidatePattern(`email_history_${tabId}_`);
       loadEmailHistory();
       initializeSignalR();
     }
 
     return () => {
-      signalRService.offEmailStatusUpdated();
+      // Clean up SignalR listeners when component unmounts or dependencies change
+      if (signalRCallback) {
+        signalRService.offEmailStatusUpdated(signalRCallback);
+        setSignalRCallback(null);
+      }
     };
-  }, [open, currentPage, filter]);
+  }, [open, currentPage, filter, signalRCallback]);
 
   const initializeSignalR = async () => {
     try {
       await signalRService.start();
       
-      signalRService.onEmailStatusUpdated((update: EmailStatusUpdate) => {
+      const callback = (update: EmailStatusUpdate) => {
+        console.log('📧 [EMAIL-HISTORY] Received email status update:', update);
         setRealTimeUpdates(prev => [update, ...prev].slice(0, 10));
         
         // Update the main email jobs list
@@ -60,7 +72,13 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
             ? { ...job, status: update.status as any }
             : job
         ));
-      });
+        
+        // Invalidate cache when status updates
+        cacheService.invalidatePattern(`email_history_${tabId}_`);
+      };
+      
+      signalRService.onEmailStatusUpdated(callback);
+      setSignalRCallback(callback);
       
       // Manually join user group as backup
       const { user } = useAuth();
@@ -72,8 +90,33 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
     }
   };
 
-  const loadEmailHistory = async () => {
-    console.log('📧 [EMAIL_HISTORY] Loading email history for tab:', tabId, 'page:', currentPage);
+  const loadEmailHistory = async (forceRefresh = false) => {
+    console.log('📧 [EMAIL_HISTORY] Loading email history for tab:', tabId, 'page:', currentPage, 'forceRefresh:', forceRefresh);
+    
+    // Create cache key based on tab and page
+    const cacheKey = `email_history_${tabId}_${currentPage}_${pageSize}`;
+    const allDataCacheKey = `email_history_all_${tabId}`;
+    
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cachedData = cacheService.get<{emailJobs: EmailJob[], totalPages: number}>(cacheKey);
+      if (cachedData) {
+        console.log('📦 [EMAIL_HISTORY] Returning cached email history:', cachedData.emailJobs.length);
+        setEmailJobs(cachedData.emailJobs);
+        setTotalPages(cachedData.totalPages);
+        return;
+      }
+      
+      // Check if we have all data cached and can slice it
+      const allCachedData = cacheService.get<{emailJobs: EmailJob[], totalPages: number}>(allDataCacheKey);
+      if (allCachedData && currentPage === 1) {
+        console.log('📦 [EMAIL_HISTORY] Using all cached data for page 1:', allCachedData.emailJobs.length);
+        setEmailJobs(allCachedData.emailJobs);
+        setTotalPages(allCachedData.totalPages);
+        return;
+      }
+    }
+    
     setLoading(true);
     try {
       const response = await apiService.getTabEmailHistory(tabId, currentPage, pageSize);
@@ -86,6 +129,14 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
         const totalPages = Math.ceil(response.data.length / pageSize);
         setTotalPages(totalPages);
         console.log('📄 [EMAIL_HISTORY] Set total pages to:', totalPages);
+        
+        // Cache for 5 minutes (increased from 1 minute)
+        cacheService.set(cacheKey, { emailJobs: response.data, totalPages }, 5 * 60 * 1000);
+        
+        // If this is page 1, also cache as "all data" for faster subsequent loads
+        if (currentPage === 1) {
+          cacheService.set(allDataCacheKey, { emailJobs: response.data, totalPages }, 5 * 60 * 1000);
+        }
       } else {
         console.log('⚠️ [EMAIL_HISTORY] No data received from API');
       }
@@ -95,6 +146,12 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
       setLoading(false);
       console.log('🏁 [EMAIL_HISTORY] Loading completed');
     }
+  };
+
+  const handleRefresh = () => {
+    console.log('🔄 [EMAIL_HISTORY] Manual refresh triggered');
+    cacheService.invalidatePattern(`email_history_${tabId}_`);
+    loadEmailHistory(true);
   };
 
   const getStatusIcon = (status: string) => {
@@ -142,10 +199,6 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
     if (filter.employee && !job.employeeName.toLowerCase().includes(filter.employee.toLowerCase())) return false;
     return true;
   });
-
-  const handleRefresh = () => {
-    loadEmailHistory();
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -249,7 +302,11 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName }: Email
                         {filteredEmails.map((job) => (
                           <div
                             key={job.id}
-                            className="flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors"
+                            className={`flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors ${
+                              highlightedEmailJobId === job.id 
+                                ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/50' 
+                                : ''
+                            }`}
                           >
                             <div className="flex-shrink-0">
                               {getStatusIcon(job.status)}

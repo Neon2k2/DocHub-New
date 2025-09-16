@@ -21,6 +21,7 @@ import { cn } from './ui/utils';
 import { UserRole } from './Login';
 import { DynamicTab, tabService } from '../services/tab.service';
 import { Badge } from './ui/badge';
+import { Skeleton, SkeletonList } from './ui/skeleton';
 
 interface SidebarProps {
   activeModule: 'er' | 'billing';
@@ -192,30 +193,34 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
                   </Badge>
                 </div>
                 <div className="space-y-1">
-                  {pagesByCategory['letters'].map((page) => {
-                    const Icon = page.icon;
-                    const isActive = activePage === page.id;
-                    
-                    return (
-                      <Button
-                        key={page.id}
-                        variant={isActive ? 'default' : 'ghost'}
-                        className={cn(
-                          "w-full justify-start transition-all duration-300 group",
-                          isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
-                          !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400",
-                          !page.isStatic && "border-l-2 border-transparent hover:border-blue-500/50"
-                        )}
-                        onClick={() => onPageChange(page.id)}
-                      >
-                        <Icon className={cn(
-                          "mr-3 h-4 w-4",
-                          !page.isStatic && "text-blue-600/70 group-hover:text-blue-600"
-                        )} />
-                        <span className="truncate">{page.label}</span>
-                      </Button>
-                    );
-                  })}
+                  {loading ? (
+                    <SkeletonList items={3} />
+                  ) : (
+                    pagesByCategory['letters'].map((page) => {
+                      const Icon = page.icon;
+                      const isActive = activePage === page.id;
+                      
+                      return (
+                        <Button
+                          key={page.id}
+                          variant={isActive ? 'default' : 'ghost'}
+                          className={cn(
+                            "w-full justify-start transition-all duration-300 group",
+                            isActive && "neon-border-blue bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900",
+                            !isActive && "hover:bg-muted hover:text-blue-600 dark:hover:text-blue-400",
+                            !page.isStatic && "border-l-2 border-transparent hover:border-blue-500/50"
+                          )}
+                          onClick={() => onPageChange(page.id)}
+                        >
+                          <Icon className={cn(
+                            "mr-3 h-4 w-4",
+                            !page.isStatic && "text-blue-600/70 group-hover:text-blue-600"
+                          )} />
+                          <span className="truncate">{page.label}</span>
+                        </Button>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             )}

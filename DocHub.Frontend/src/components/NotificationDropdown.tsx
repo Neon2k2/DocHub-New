@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, CheckCircle, AlertCircle, Clock, Mail, X, Eye } from 'lucide-react';
+import { Bell, CheckCircle, AlertCircle, Clock, Mail, X, Eye, ExternalLink } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -8,6 +8,7 @@ import { Card, CardContent } from './ui/card';
 import { signalRService, EmailStatusUpdate } from '../services/signalr.service';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { Skeleton, SkeletonNotification } from './ui/skeleton';
 
 interface NotificationItem {
   id: string;
@@ -17,13 +18,19 @@ interface NotificationItem {
   timestamp: Date;
   isRead: boolean;
   emailJobId?: string;
+  letterTypeDefinitionId?: string;
   employeeName?: string;
 }
 
-export function NotificationDropdown() {
+interface NotificationDropdownProps {
+  onNavigateToTab?: (tabId: string, emailJobId?: string) => void;
+}
+
+export function NotificationDropdown({ onNavigateToTab }: NotificationDropdownProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -63,21 +70,32 @@ export function NotificationDropdown() {
   const addEmailStatusNotification = (update: EmailStatusUpdate) => {
     console.log('📝 [NOTIFICATION_DROPDOWN] Adding email status notification:', update);
     
+    // Show notifications for all status updates except pending
+    if (update.status === 'pending') {
+      console.log('📝 [NOTIFICATION_DROPDOWN] Skipping notification for status:', update.status);
+      return;
+    }
+    
     const notification: NotificationItem = {
-      id: `email-${update.emailJobId}-${Date.now()}`,
+      id: `email-${update.emailJobId}-${update.status}-${Date.now()}`,
       title: getNotificationTitle(update.status),
       message: getNotificationMessage(update.status, update.employeeName || 'Unknown'),
       type: getNotificationType(update.status),
       timestamp: new Date(update.timestamp),
       isRead: false,
       emailJobId: update.emailJobId,
+      letterTypeDefinitionId: update.letterTypeDefinitionId,
       employeeName: update.employeeName
     };
 
     console.log('📋 [NOTIFICATION_DROPDOWN] Created notification item:', notification);
     
     setNotifications(prev => {
-      const newNotifications = [notification, ...prev].slice(0, 20); // Keep last 20 notifications
+      // Remove any existing notification for the same email job and status
+      const filtered = prev.filter(notif => 
+        !(notif.emailJobId === update.emailJobId && notif.type === notification.type)
+      );
+      const newNotifications = [notification, ...filtered].slice(0, 10); // Keep last 10 notifications
       console.log('📊 [NOTIFICATION_DROPDOWN] Updated notifications count:', newNotifications.length);
       return newNotifications;
     });
@@ -88,13 +106,16 @@ export function NotificationDropdown() {
       return newCount;
     });
 
-    // Show toast notification for important status changes
+    // Show toast notification based on status
+    const toastMessage = getNotificationMessage(update.status, update.employeeName || 'employee');
     if (update.status === 'sent') {
-      toast.success(`📧 Email sent successfully to ${update.employeeName || 'employee'}`);
+      toast.success(`📧 ${toastMessage}`);
     } else if (update.status === 'delivered') {
-      toast.success(`✅ Email delivered to ${update.employeeName || 'employee'}`);
+      toast.success(`✅ ${toastMessage}`);
     } else if (update.status === 'bounced' || update.status === 'dropped') {
-      toast.error(`❌ Email failed to deliver to ${update.employeeName || 'employee'}`);
+      toast.error(`❌ ${toastMessage}`);
+    } else {
+      toast.info(`ℹ️ ${toastMessage}`);
     }
   };
 
@@ -161,6 +182,26 @@ export function NotificationDropdown() {
     setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
+  const handleNotificationClick = (notification: NotificationItem) => {
+    console.log('🔔 [NOTIFICATION_DROPDOWN] Notification clicked:', notification);
+    console.log('🔔 [NOTIFICATION_DROPDOWN] LetterTypeDefinitionId:', notification.letterTypeDefinitionId);
+    console.log('🔔 [NOTIFICATION_DROPDOWN] EmailJobId:', notification.emailJobId);
+    console.log('🔔 [NOTIFICATION_DROPDOWN] onNavigateToTab function:', onNavigateToTab);
+    
+    // Mark as read
+    markAsRead(notification.id);
+    
+    // Navigate to the tab and open history
+    if (notification.letterTypeDefinitionId && onNavigateToTab) {
+      console.log('🔔 [NOTIFICATION_DROPDOWN] Calling onNavigateToTab with:', notification.letterTypeDefinitionId, notification.emailJobId);
+      onNavigateToTab(notification.letterTypeDefinitionId, notification.emailJobId);
+      setIsOpen(false); // Close the dropdown
+      console.log('🔔 [NOTIFICATION_DROPDOWN] Navigation called, dropdown closed');
+    } else {
+      console.log('🔔 [NOTIFICATION_DROPDOWN] Cannot navigate - missing letterTypeDefinitionId or onNavigateToTab function');
+    }
+  };
+
   const markAllAsRead = () => {
     setNotifications(prev => 
       prev.map(notif => ({ ...notif, isRead: true }))
@@ -187,9 +228,9 @@ export function NotificationDropdown() {
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="hover:text-blue-600 relative">
-          <Bell className="h-4 w-4" />
+          <Bell className={`h-4 w-4 ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
           {unreadCount > 0 && (
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 bg-pink-500 border-0 text-xs flex items-center justify-center">
+            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 bg-pink-500 border-0 text-xs flex items-center justify-center animate-bounce">
               {unreadCount > 99 ? '99+' : unreadCount}
             </Badge>
           )}
@@ -226,7 +267,13 @@ export function NotificationDropdown() {
           
           <CardContent className="p-0">
             <ScrollArea className="h-96">
-              {notifications.length === 0 ? (
+              {loading ? (
+                <div className="space-y-1 p-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SkeletonNotification key={i} />
+                  ))}
+                </div>
+              ) : notifications.length === 0 ? (
                 <div className="text-center py-12">
                   <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-2">No Notifications</h3>
@@ -239,10 +286,10 @@ export function NotificationDropdown() {
                   {notifications.map((notification) => (
                     <div
                       key={notification.id}
-                      className={`p-3 hover:bg-muted/50 cursor-pointer transition-colors ${
+                      className={`p-3 hover:bg-muted/50 cursor-pointer transition-colors group ${
                         !notification.isRead ? 'bg-blue-50/50 border-l-2 border-l-blue-500' : ''
                       }`}
-                      onClick={() => markAsRead(notification.id)}
+                      onClick={() => handleNotificationClick(notification)}
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-shrink-0 mt-0.5">
@@ -252,13 +299,23 @@ export function NotificationDropdown() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <p className="font-medium text-sm">{notification.title}</p>
-                            <span className="text-xs text-muted-foreground">
-                              {formatTimeAgo(notification.timestamp)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {formatTimeAgo(notification.timestamp)}
+                              </span>
+                              {notification.letterTypeDefinitionId && (
+                                <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-blue-500 transition-colors" />
+                              )}
+                            </div>
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
                             {notification.message}
                           </p>
+                          {notification.letterTypeDefinitionId && (
+                            <p className="text-xs text-blue-600 mt-1 group-hover:text-blue-700">
+                              Click to view in history
+                            </p>
+                          )}
                         </div>
                         
                         {!notification.isRead && (

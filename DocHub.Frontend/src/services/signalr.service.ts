@@ -2,6 +2,7 @@ import * as signalR from '@microsoft/signalr';
 
 export interface EmailStatusUpdate {
   emailJobId: string;
+  letterTypeDefinitionId: string;
   employeeId?: string;
   employeeName?: string;
   employeeEmail?: string;
@@ -22,6 +23,8 @@ class SignalRService {
   private reconnectDelay = 1000;
   private startPromise: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
+  private activeListeners = new Set<string>();
+  private connectionCheckInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     this.initializeConnection();
@@ -120,6 +123,7 @@ class SignalRService {
     // Check if already connected
     if (this.connection.state === signalR.HubConnectionState.Connected) {
       this.isConnected = true;
+      this.startConnectionHealthCheck();
       return;
     }
 
@@ -128,6 +132,7 @@ class SignalRService {
       this.startPromise = this._performStart();
       try {
         await this.startPromise;
+        this.startConnectionHealthCheck();
       } finally {
         this.startPromise = null;
       }
@@ -198,6 +203,7 @@ class SignalRService {
       console.warn('Error stopping SignalR connection:', error);
     } finally {
       this.isConnected = false;
+      this.stopConnectionHealthCheck();
     }
   }
 
@@ -255,6 +261,49 @@ class SignalRService {
         console.error(`❌ [SIGNALR] Failed to leave user group: user_${userId}`, error);
       }
     }
+  }
+
+  // Connection health check
+  private startConnectionHealthCheck(): void {
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+    }
+    
+    this.connectionCheckInterval = setInterval(() => {
+      if (this.connection && this.connection.state !== signalR.HubConnectionState.Connected) {
+        console.log('🔄 [SIGNALR] Connection lost, attempting to reconnect...');
+        this.isConnected = false;
+        this.handleReconnection();
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  private stopConnectionHealthCheck(): void {
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
+  }
+
+  // Listener management
+  addListener(componentId: string): void {
+    this.activeListeners.add(componentId);
+    console.log(`📝 [SIGNALR] Added listener: ${componentId}, total: ${this.activeListeners.size}`);
+  }
+
+  removeListener(componentId: string): void {
+    this.activeListeners.delete(componentId);
+    console.log(`📝 [SIGNALR] Removed listener: ${componentId}, total: ${this.activeListeners.size}`);
+    
+    // If no more listeners, stop the connection
+    if (this.activeListeners.size === 0) {
+      console.log('📝 [SIGNALR] No more listeners, stopping connection');
+      this.stop();
+    }
+  }
+
+  hasActiveListeners(): boolean {
+    return this.activeListeners.size > 0;
   }
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiService, Employee, CreateEmployeeRequest } from '../services/api.service';
+import { cacheService } from '../services/cache.service';
 
 interface UseEmployeesParams {
   page?: number;
@@ -34,12 +35,32 @@ export const useEmployees = (params: UseEmployeesParams = {}): UseEmployeesRetur
   const [pagination, setPagination] = useState<UseEmployeesReturn['pagination']>(null);
 
   const fetchEmployees = useCallback(async () => {
+    // Create cache key based on parameters
+    const cacheKey = `employees_${JSON.stringify(params)}`;
+    
+    // Check cache first
+    const cachedData = cacheService.get<{employees: Employee[], pagination: any}>(cacheKey);
+    if (cachedData) {
+      console.log('📦 [EMPLOYEES] Returning cached employees:', cachedData.employees.length);
+      setEmployees(cachedData.employees);
+      setPagination(cachedData.pagination);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
     try {
       const response = await apiService.getEmployees(params);
       if (response.success && response.data) {
+        const data = {
+          employees: response.data.items,
+          pagination: response.data.pagination
+        };
+        
+        // Cache for 3 minutes
+        cacheService.set(cacheKey, data, 3 * 60 * 1000);
+        
         setEmployees(response.data.items);
         setPagination(response.data.pagination);
       } else {
@@ -62,6 +83,8 @@ export const useEmployees = (params: UseEmployeesParams = {}): UseEmployeesRetur
       const response = await apiService.createEmployee(employee);
       if (response.success && response.data) {
         setEmployees(prev => [response.data!, ...prev]);
+        // Invalidate employee cache
+        cacheService.invalidatePattern('employees_');
       } else {
         throw new Error('Failed to create employee');
       }
@@ -77,6 +100,8 @@ export const useEmployees = (params: UseEmployeesParams = {}): UseEmployeesRetur
         setEmployees(prev => prev.map(emp => 
           emp.id === id ? response.data! : emp
         ));
+        // Invalidate employee cache
+        cacheService.invalidatePattern('employees_');
       } else {
         throw new Error('Failed to update employee');
       }
@@ -90,6 +115,8 @@ export const useEmployees = (params: UseEmployeesParams = {}): UseEmployeesRetur
       const response = await apiService.deleteEmployee(id);
       if (response.success) {
         setEmployees(prev => prev.filter(emp => emp.id !== id));
+        // Invalidate employee cache
+        cacheService.invalidatePattern('employees_');
       } else {
         throw new Error('Failed to delete employee');
       }

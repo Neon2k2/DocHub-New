@@ -35,6 +35,28 @@ function AppContent() {
     setActivePage('welcome');
   };
 
+  const handleNavigateToTab = (tabId: string, emailJobId?: string) => {
+    console.log('🚀 [APP] handleNavigateToTab called with:', { tabId, emailJobId });
+    console.log('🚀 [APP] Current activeModule:', activeModule, 'activePage:', activePage);
+    
+    setActiveModule('er');
+    setActivePage(tabId);
+    
+    // Store the email job ID for highlighting in the history tab
+    if (emailJobId) {
+      console.log('🚀 [APP] Storing highlightEmailJobId in sessionStorage:', emailJobId);
+      sessionStorage.setItem('highlightEmailJobId', emailJobId);
+      
+      // Also dispatch a custom event for immediate navigation
+      console.log('🚀 [APP] Dispatching custom navigation event');
+      window.dispatchEvent(new CustomEvent('navigateToEmailHistory', { 
+        detail: { emailJobId, tabId } 
+      }));
+    }
+    
+    console.log('🚀 [APP] Navigation completed - activeModule: er, activePage:', tabId);
+  };
+
   const renderContent = () => {
     if (!user) return null;
 
@@ -76,6 +98,7 @@ function AppContent() {
         onModuleChange={handleModuleChange}
         currentUser={user}
         onNavigateToWelcome={handleNavigateToWelcome}
+        onNavigateToTab={handleNavigateToTab}
       />
       
       <div className="flex">
