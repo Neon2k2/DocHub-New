@@ -239,10 +239,12 @@ public class EmailService : IEmailService
     {
         try
         {
-                    // Get data from dynamic table
-                    var dynamicTableService = new DynamicTableService(_dbContext, _tableSchemaRepository, _loggerFactory.CreateLogger<DynamicTableService>());
-                    var tableName = GetTableNameFromExcelUpload(emailJob.ExcelUpload);
-                    var tableData = await dynamicTableService.GetDataFromDynamicTableAsync(tableName, 0, 1);
+                    // Get data from dynamic table (only if ExcelUpload exists)
+                    if (emailJob.ExcelUpload != null)
+                    {
+                        var dynamicTableService = new DynamicTableService(_dbContext, _tableSchemaRepository, _loggerFactory.CreateLogger<DynamicTableService>());
+                        var tableName = GetTableNameFromExcelUpload(emailJob.ExcelUpload);
+                        var tableData = await dynamicTableService.GetDataFromDynamicTableAsync(tableName, 0, 1);
                     
                     if (tableData.Any())
                     {
@@ -274,6 +276,7 @@ public class EmailService : IEmailService
                             
                             toName = string.Join(" ", nameValues).Trim();
                         }
+                    }
                     }
         }
         catch (Exception ex)
@@ -403,12 +406,15 @@ public class EmailService : IEmailService
             }
 
             // Send real-time notification
+            var employeeInfo = await GetEmployeeInfoAsync(emailJob);
             await _realTimeService.NotifyEmailStatusUpdateAsync(emailJob.SentBy.ToString(), new EmailStatusUpdate
             {
                 EmailJobId = emailJob.Id,
                 Status = emailJob.Status,
                 Timestamp = DateTime.UtcNow,
-                SendGridMessageId = emailJob.SendGridMessageId
+                SendGridMessageId = emailJob.SendGridMessageId,
+                EmployeeName = employeeInfo.Name,
+                EmployeeEmail = employeeInfo.Email
             });
         }
         catch (Exception ex)
@@ -423,12 +429,15 @@ public class EmailService : IEmailService
             await _dbContext.SaveChangesAsync();
 
             // Send failure notification
+            var employeeInfo = await GetEmployeeInfoAsync(emailJob);
             await _realTimeService.NotifyEmailStatusUpdateAsync(emailJob.SentBy.ToString(), new EmailStatusUpdate
             {
                 EmailJobId = emailJob.Id,
                 Status = "failed",
                 Timestamp = DateTime.UtcNow,
-                Reason = ex.Message
+                Reason = ex.Message,
+                EmployeeName = employeeInfo.Name,
+                EmployeeEmail = employeeInfo.Email
             });
         }
     }
@@ -511,9 +520,11 @@ public class EmailService : IEmailService
 
         try
         {
-            var dynamicTableService = new DynamicTableService(_dbContext, _tableSchemaRepository, _loggerFactory.CreateLogger<DynamicTableService>());
-            var tableName = GetTableNameFromExcelUpload(emailJob.ExcelUpload);
-            var tableData = await dynamicTableService.GetDataFromDynamicTableAsync(tableName, 0, 1);
+            if (emailJob.ExcelUpload != null)
+            {
+                var dynamicTableService = new DynamicTableService(_dbContext, _tableSchemaRepository, _loggerFactory.CreateLogger<DynamicTableService>());
+                var tableName = GetTableNameFromExcelUpload(emailJob.ExcelUpload);
+                var tableData = await dynamicTableService.GetDataFromDynamicTableAsync(tableName, 0, 1);
             
             if (tableData.Any())
             {
@@ -574,6 +585,7 @@ public class EmailService : IEmailService
                         }
                     }
                 }
+            }
             }
             catch (Exception ex)
             {
@@ -724,6 +736,8 @@ public class EmailService : IEmailService
     {
         try
         {
+            _logger.LogDebug("🎨 [EMAIL_RENDER] Starting email content rendering");
+            
             // Simple template rendering - replace placeholders with data
             var result = content;
             
@@ -738,11 +752,12 @@ public class EmailService : IEmailService
                 }
             }
 
-            return result;
+            _logger.LogDebug("✅ [EMAIL_RENDER] Email content rendering completed");
+            return await Task.FromResult(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error rendering email content");
+            _logger.LogError(ex, "❌ [EMAIL_RENDER] Error rendering email content");
             throw;
         }
     }
@@ -751,16 +766,24 @@ public class EmailService : IEmailService
     {
         try
         {
+            _logger.LogDebug("📧 [EMAIL_VALIDATE] Validating email address: {Email}", email);
+            
             if (string.IsNullOrEmpty(email))
-                return false;
+            {
+                _logger.LogDebug("❌ [EMAIL_VALIDATE] Email is null or empty");
+                return await Task.FromResult(false);
+            }
 
             var emailRegex = new System.Text.RegularExpressions.Regex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$");
-            return emailRegex.IsMatch(email);
+            var isValid = emailRegex.IsMatch(email);
+            
+            _logger.LogDebug("✅ [EMAIL_VALIDATE] Email validation result: {IsValid}", isValid);
+            return await Task.FromResult(isValid);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error validating email address");
-            return false;
+            _logger.LogError(ex, "❌ [EMAIL_VALIDATE] Error validating email address");
+            return await Task.FromResult(false);
         }
     }
 
@@ -1000,6 +1023,371 @@ public class EmailService : IEmailService
         {
             _logger.LogError(ex, "Error retrying failed email");
             throw;
+        }
+    }
+
+    public async Task PollEmailStatusesAsync()
+    {
+        try
+        {
+            _logger.LogDebug("🔍 [EMAIL_POLLING] Starting email status polling at {Timestamp}", DateTime.UtcNow);
+
+            // Get emails that are sent but not yet delivered, opened, clicked, bounced, or dropped
+            // Also include emails that are pending but have been sent for more than 30 seconds (in case status update failed)
+            var thirtySecondsAgo = DateTime.UtcNow.AddSeconds(-30);
+            var emailsToCheck = await _dbContext.EmailJobs
+                .Where(e => (e.Status == "sent" || (e.Status == "pending" && e.SentAt.HasValue && e.SentAt.Value < thirtySecondsAgo)) && 
+                           e.SendGridMessageId != null && 
+                           e.DeliveredAt == null && 
+                           e.BouncedAt == null && 
+                           e.DroppedAt == null)
+                .Take(50) // Limit to 50 emails per polling cycle
+                .ToListAsync();
+
+            _logger.LogDebug("📊 [EMAIL_POLLING] Found {Count} emails to check for status updates", emailsToCheck.Count);
+
+            if (!emailsToCheck.Any())
+            {
+                _logger.LogDebug("✅ [EMAIL_POLLING] No emails to check for status updates");
+                return;
+            }
+
+            _logger.LogInformation("🔄 [EMAIL_POLLING] Checking status for {Count} emails", emailsToCheck.Count);
+
+            var successCount = 0;
+            var errorCount = 0;
+
+            foreach (var emailJob in emailsToCheck)
+            {
+                try
+                {
+                    _logger.LogDebug("📧 [EMAIL_POLLING] Checking status for email job {EmailJobId} (SendGrid ID: {SendGridId})", 
+                        emailJob.Id, emailJob.SendGridMessageId);
+                    
+                    await CheckEmailStatusWithSendGridAsync(emailJob);
+                    successCount++;
+                    
+                    _logger.LogDebug("✅ [EMAIL_POLLING] Successfully checked status for email job {EmailJobId}", emailJob.Id);
+                }
+                catch (Exception ex)
+                {
+                    errorCount++;
+                    _logger.LogError(ex, "❌ [EMAIL_POLLING] Error checking status for email job {EmailJobId}: {Message}", 
+                        emailJob.Id, ex.Message);
+                }
+            }
+
+            _logger.LogInformation("📈 [EMAIL_POLLING] Polling completed - Success: {SuccessCount}, Errors: {ErrorCount}", 
+                successCount, errorCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [EMAIL_POLLING] Error in email status polling: {Message}", ex.Message);
+        }
+    }
+
+    private async Task CheckEmailStatusWithSendGridAsync(EmailJob emailJob)
+    {
+        try
+        {
+            _logger.LogDebug("🔍 [SENDGRID_CHECK] Starting SendGrid Activity API check for email job {EmailJobId}", emailJob.Id);
+            
+            var apiKey = _configuration["SendGrid:ApiKey"];
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogWarning("⚠️ [SENDGRID_CHECK] SendGrid API key not configured for email job {EmailJobId}", emailJob.Id);
+                return;
+            }
+
+            _logger.LogDebug("🔑 [SENDGRID_CHECK] API key found, creating SendGrid client for email job {EmailJobId}", emailJob.Id);
+            var client = new SendGrid.SendGridClient(apiKey);
+            
+            // Use SendGrid Activity API to get events for this message
+            var queryParams = new Dictionary<string, string>
+            {
+                { "query", $"sg_message_id=\"{emailJob.SendGridMessageId}\"" },
+                { "limit", "10" }
+            };
+
+            _logger.LogDebug("📡 [SENDGRID_CHECK] Making Activity API request to SendGrid for message {MessageId}", emailJob.SendGridMessageId);
+            
+            // Build query string manually
+            var queryString = string.Join("&", queryParams.Select(kvp => $"{kvp.Key}={Uri.EscapeDataString(kvp.Value)}"));
+            var fullUrl = $"messages?{queryString}";
+            
+            var response = await client.RequestAsync(
+                method: SendGrid.SendGridClient.Method.GET,
+                urlPath: fullUrl
+            );
+
+            _logger.LogDebug("📊 [SENDGRID_CHECK] SendGrid Activity API response status: {StatusCode} for message {MessageId}", 
+                response.StatusCode, emailJob.SendGridMessageId);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseBody = await response.Body.ReadAsStringAsync();
+                _logger.LogDebug("📄 [SENDGRID_CHECK] Activity API response body length: {Length} for message {MessageId}", 
+                    responseBody.Length, emailJob.SendGridMessageId);
+                
+                // Log the actual response for debugging
+                _logger.LogDebug("📄 [SENDGRID_CHECK] Activity API response body: {ResponseBody}", responseBody);
+                
+                var activityData = JsonSerializer.Deserialize<JsonElement>(responseBody);
+                _logger.LogDebug("✅ [SENDGRID_CHECK] Successfully parsed SendGrid Activity API response for message {MessageId}", 
+                    emailJob.SendGridMessageId);
+
+                // Parse the response and update email status
+                await UpdateEmailStatusFromActivityApiAsync(emailJob, activityData);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ [SENDGRID_CHECK] Failed to get message status from SendGrid Activity API for {MessageId}. Status: {StatusCode}", 
+                    emailJob.SendGridMessageId, response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [SENDGRID_CHECK] Error checking SendGrid Activity API status for email job {EmailJobId}: {Message}", 
+                emailJob.Id, ex.Message);
+        }
+    }
+
+    private async Task UpdateEmailStatusFromActivityApiAsync(EmailJob emailJob, JsonElement activityData)
+    {
+        try
+        {
+            _logger.LogDebug("🔄 [STATUS_UPDATE] Starting Activity API status update for email job {EmailJobId} with current status {CurrentStatus}", 
+                emailJob.Id, emailJob.Status);
+            
+            var hasUpdates = false;
+            var oldStatus = emailJob.Status;
+
+            // The Activity API returns an array of events
+            if (activityData.TryGetProperty("messages", out var messages) && 
+                messages.ValueKind == JsonValueKind.Array)
+            {
+                _logger.LogDebug("📋 [STATUS_UPDATE] Found {Count} messages in Activity API response for email job {EmailJobId}", 
+                    messages.GetArrayLength(), emailJob.Id);
+
+                foreach (var message in messages.EnumerateArray())
+                {
+                    if (message.TryGetProperty("events", out var events) && 
+                        events.ValueKind == JsonValueKind.Array)
+                    {
+                        _logger.LogDebug("📊 [STATUS_UPDATE] Found {Count} events for message in email job {EmailJobId}", 
+                            events.GetArrayLength(), emailJob.Id);
+
+                        foreach (var eventItem in events.EnumerateArray())
+                        {
+                            if (eventItem.TryGetProperty("event", out var eventType))
+                            {
+                                var eventTypeStr = eventType.GetString();
+                                _logger.LogDebug("🎯 [STATUS_UPDATE] Processing event type: {EventType} for email job {EmailJobId}", 
+                                    eventTypeStr, emailJob.Id);
+
+                                switch (eventTypeStr?.ToLowerInvariant())
+                                {
+                                    case "delivered":
+                                        if (emailJob.DeliveredAt == null && 
+                                            eventItem.TryGetProperty("timestamp", out var deliveredTimestamp))
+                                        {
+                                            emailJob.Status = "delivered";
+                                            emailJob.DeliveredAt = DateTimeOffset.FromUnixTimeSeconds(deliveredTimestamp.GetInt64()).DateTime;
+                                            hasUpdates = true;
+                                            _logger.LogInformation("✅ [STATUS_UPDATE] Updated to delivered status for email job {EmailJobId}", emailJob.Id);
+                                        }
+                                        break;
+
+                                    case "open":
+                                        if (emailJob.OpenedAt == null && 
+                                            eventItem.TryGetProperty("timestamp", out var openedTimestamp))
+                                        {
+                                            emailJob.Status = "opened";
+                                            emailJob.OpenedAt = DateTimeOffset.FromUnixTimeSeconds(openedTimestamp.GetInt64()).DateTime;
+                                            hasUpdates = true;
+                                            _logger.LogInformation("✅ [STATUS_UPDATE] Updated to opened status for email job {EmailJobId}", emailJob.Id);
+                                        }
+                                        break;
+
+                                    case "click":
+                                        if (emailJob.ClickedAt == null && 
+                                            eventItem.TryGetProperty("timestamp", out var clickedTimestamp))
+                                        {
+                                            emailJob.Status = "clicked";
+                                            emailJob.ClickedAt = DateTimeOffset.FromUnixTimeSeconds(clickedTimestamp.GetInt64()).DateTime;
+                                            hasUpdates = true;
+                                            _logger.LogInformation("✅ [STATUS_UPDATE] Updated to clicked status for email job {EmailJobId}", emailJob.Id);
+                                        }
+                                        break;
+
+                                    case "bounce":
+                                        if (emailJob.BouncedAt == null && 
+                                            eventItem.TryGetProperty("timestamp", out var bouncedTimestamp))
+                                        {
+                                            emailJob.Status = "bounced";
+                                            emailJob.BouncedAt = DateTimeOffset.FromUnixTimeSeconds(bouncedTimestamp.GetInt64()).DateTime;
+                                            if (eventItem.TryGetProperty("reason", out var bounceReason))
+                                            {
+                                                emailJob.BounceReason = bounceReason.GetString();
+                                            }
+                                            hasUpdates = true;
+                                            _logger.LogInformation("✅ [STATUS_UPDATE] Updated to bounced status for email job {EmailJobId}", emailJob.Id);
+                                        }
+                                        break;
+
+                                    case "dropped":
+                                        if (emailJob.DroppedAt == null && 
+                                            eventItem.TryGetProperty("timestamp", out var droppedTimestamp))
+                                        {
+                                            emailJob.Status = "dropped";
+                                            emailJob.DroppedAt = DateTimeOffset.FromUnixTimeSeconds(droppedTimestamp.GetInt64()).DateTime;
+                                            if (eventItem.TryGetProperty("reason", out var dropReason))
+                                            {
+                                                emailJob.DropReason = dropReason.GetString();
+                                            }
+                                            hasUpdates = true;
+                                            _logger.LogInformation("✅ [STATUS_UPDATE] Updated to dropped status for email job {EmailJobId}", emailJob.Id);
+                                        }
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ [STATUS_UPDATE] No messages found in Activity API response for email job {EmailJobId}", emailJob.Id);
+            }
+
+            if (hasUpdates)
+            {
+                emailJob.UpdatedAt = DateTime.UtcNow;
+                await _emailJobRepository.UpdateAsync(emailJob);
+                
+                _logger.LogInformation("📧 [STATUS_UPDATE] Email job {EmailJobId} status updated from {OldStatus} to {NewStatus}", 
+                    emailJob.Id, oldStatus, emailJob.Status);
+
+                // Send real-time notification
+                await _realTimeService.NotifyEmailStatusUpdateAsync(
+                    emailJob.SentBy.ToString(), 
+                    new EmailStatusUpdate
+                    {
+                        EmailJobId = emailJob.Id,
+                        Status = emailJob.Status,
+                        Timestamp = emailJob.UpdatedAt,
+                        EmployeeName = emailJob.RecipientName,
+                        Reason = emailJob.BounceReason ?? emailJob.DropReason
+                    }
+                );
+            }
+            else
+            {
+                _logger.LogDebug("ℹ️ [STATUS_UPDATE] No status updates needed for email job {EmailJobId}", emailJob.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [STATUS_UPDATE] Error updating email status from Activity API for email job {EmailJobId}: {Message}", 
+                emailJob.Id, ex.Message);
+        }
+    }
+
+    private async Task<(string Name, string Email)> GetEmployeeInfoAsync(EmailJob emailJob)
+    {
+        try
+        {
+            _logger.LogDebug("👤 [EMPLOYEE_INFO] Getting employee info for email job {EmailJobId}", emailJob.Id);
+            
+            // Get the Excel upload to access the dynamic table data
+            _logger.LogDebug("📊 [EMPLOYEE_INFO] Looking up Excel upload {ExcelUploadId} for email job {EmailJobId}", 
+                emailJob.ExcelUploadId, emailJob.Id);
+            
+            var excelUpload = await _dbContext.ExcelUploads
+                .FirstOrDefaultAsync(e => e.Id == emailJob.ExcelUploadId);
+
+            if (excelUpload?.ParsedData == null)
+            {
+                _logger.LogDebug("⚠️ [EMPLOYEE_INFO] Excel upload or parsed data not found for email job {EmailJobId}, using fallback", emailJob.Id);
+                return (emailJob.RecipientName ?? "Unknown", emailJob.RecipientEmail ?? "");
+            }
+
+            _logger.LogDebug("✅ [EMPLOYEE_INFO] Found Excel upload for email job {EmailJobId}, parsing data", emailJob.Id);
+
+            // Parse the dynamic data
+            var dataDict = JsonSerializer.Deserialize<Dictionary<string, object>>(excelUpload.ParsedData);
+            if (dataDict == null)
+            {
+                _logger.LogDebug("⚠️ [EMPLOYEE_INFO] Failed to parse Excel data for email job {EmailJobId}, using fallback", emailJob.Id);
+                return (emailJob.RecipientName ?? "Unknown", emailJob.RecipientEmail ?? "");
+            }
+
+            _logger.LogDebug("📋 [EMPLOYEE_INFO] Successfully parsed Excel data with {Count} fields for email job {EmailJobId}", 
+                dataDict.Count, emailJob.Id);
+
+            // Extract employee name
+            var employeeName = string.Empty;
+            var employeeEmail = string.Empty;
+
+            // Try to find name fields
+            var nameFields = new[] { "name", "full_name", "employee_name", "first_name", "last_name" };
+            _logger.LogDebug("🔍 [EMPLOYEE_INFO] Searching for name fields in data for email job {EmailJobId}", emailJob.Id);
+            
+            foreach (var fieldName in nameFields)
+            {
+                if (dataDict.TryGetValue(fieldName, out var nameValue) && !string.IsNullOrEmpty(nameValue?.ToString()))
+                {
+                    employeeName = nameValue.ToString()!;
+                    _logger.LogDebug("✅ [EMPLOYEE_INFO] Found name field '{FieldName}' with value '{Value}' for email job {EmailJobId}", 
+                        fieldName, employeeName, emailJob.Id);
+                    break;
+                }
+            }
+
+            // Try first_name and last_name separately
+            if (string.IsNullOrEmpty(employeeName))
+            {
+                _logger.LogDebug("🔍 [EMPLOYEE_INFO] No single name field found, trying first_name and last_name for email job {EmailJobId}", emailJob.Id);
+                
+                var firstName = dataDict.TryGetValue("first_name", out var firstNameValue) ? firstNameValue?.ToString() : "";
+                var lastName = dataDict.TryGetValue("last_name", out var lastNameValue) ? lastNameValue?.ToString() : "";
+                
+                if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
+                {
+                    employeeName = $"{firstName} {lastName}".Trim();
+                    _logger.LogDebug("✅ [EMPLOYEE_INFO] Combined first_name '{FirstName}' and last_name '{LastName}' to '{FullName}' for email job {EmailJobId}", 
+                        firstName, lastName, employeeName, emailJob.Id);
+                }
+            }
+
+            // Extract email
+            var emailFields = new[] { "email", "email_address", "employee_email" };
+            _logger.LogDebug("🔍 [EMPLOYEE_INFO] Searching for email fields in data for email job {EmailJobId}", emailJob.Id);
+            
+            foreach (var fieldName in emailFields)
+            {
+                if (dataDict.TryGetValue(fieldName, out var emailValue) && !string.IsNullOrEmpty(emailValue?.ToString()))
+                {
+                    employeeEmail = emailValue.ToString()!;
+                    _logger.LogDebug("✅ [EMPLOYEE_INFO] Found email field '{FieldName}' with value '{Value}' for email job {EmailJobId}", 
+                        fieldName, employeeEmail, emailJob.Id);
+                    break;
+                }
+            }
+
+            var resultName = string.IsNullOrEmpty(employeeName) ? emailJob.RecipientName ?? "Unknown" : employeeName;
+            var resultEmail = string.IsNullOrEmpty(employeeEmail) ? emailJob.RecipientEmail ?? "" : employeeEmail;
+            
+            _logger.LogDebug("✅ [EMPLOYEE_INFO] Final employee info - Name: '{Name}', Email: '{Email}' for email job {EmailJobId}", 
+                resultName, resultEmail, emailJob.Id);
+
+            return (resultName, resultEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [EMPLOYEE_INFO] Error getting employee info for email job {EmailJobId}: {Message}", 
+                emailJob.Id, ex.Message);
+            return (emailJob.RecipientName ?? "Unknown", emailJob.RecipientEmail ?? "");
         }
     }
 }

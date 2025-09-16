@@ -10,7 +10,7 @@ public class GenerateDocumentRequest
     public Guid LetterTypeDefinitionId { get; set; }
 
     [Required]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     [Required]
     public Guid TemplateId { get; set; }
@@ -56,7 +56,7 @@ public class PreviewDocumentRequest
     public Guid LetterTypeDefinitionId { get; set; }
 
     [Required]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     [Required]
     public Guid TemplateId { get; set; }
@@ -101,7 +101,7 @@ public class GeneratedDocumentDto
     public Guid Id { get; set; }
     public Guid LetterTypeDefinitionId { get; set; }
     public string LetterTypeName { get; set; } = string.Empty;
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
     public Guid TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
     public Guid? SignatureId { get; set; }

@@ -474,7 +474,7 @@ export function EmailComposerDialog({
                     
                     <Separator />
                     
-                    <div className="bg-white text-black p-4 rounded border">
+                    <div className="bg-background text-foreground p-4 rounded border">
                       <pre className="whitespace-pre-wrap font-sans">
                         {currentEmployeeData.content}
                       </pre>

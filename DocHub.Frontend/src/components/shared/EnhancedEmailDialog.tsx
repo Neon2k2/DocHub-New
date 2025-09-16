@@ -14,6 +14,8 @@ import { Label } from '../ui/label';
 import { Progress } from '../ui/progress';
 import { documentService, EmailJob, EmailAttachment, Signature, DocumentTemplate } from '../../services/document.service';
 import { Employee, apiService, EmailAttachmentRequest } from '../../services/api.service';
+import { signalRService, EmailStatusUpdate } from '../../services/signalr.service';
+import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
 
 interface EnhancedEmailDialogProps {
@@ -55,6 +57,8 @@ export function EnhancedEmailDialog({
   emailTemplate = '',
   emailTemplateSubject = ''
 }: EnhancedEmailDialogProps) {
+  const { user } = useAuth();
+  
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [emailData, setEmailData] = useState<EmployeeEmailData[]>([]);
@@ -71,9 +75,66 @@ export function EnhancedEmailDialog({
   useEffect(() => {
     if (open) {
       loadTemplatesAndSignatures();
+      // Only initialize email data if it's empty (first time opening)
+      if (emailData.length === 0) {
+        initializeEmailData();
+      }
+      initializeSignalR();
+    } else {
+      // Reset email data when dialog closes
+      setEmailData([]);
+      setSentJobs([]);
+      setCurrentEmployeeIndex(0);
+    }
+
+    return () => {
+      signalRService.offEmailStatusUpdated();
+    };
+  }, [open]);
+
+  // Separate effect to initialize email data when employees change (but not templates)
+  useEffect(() => {
+    if (open && employees.length > 0 && emailData.length === 0) {
+      console.log('🔄 [EMAIL-DIALOG] Initializing email data from employees change');
       initializeEmailData();
     }
-  }, [open, employees, emailTemplate, emailTemplateSubject]);
+  }, [employees]);
+
+  // Prevent re-initialization when templates change during PDF generation
+  useEffect(() => {
+    if (open && employees.length > 0 && emailData.length > 0) {
+      console.log('🔄 [EMAIL-DIALOG] Templates changed but email data exists, skipping initialization');
+    }
+  }, [emailTemplate, emailTemplateSubject]);
+
+  const initializeSignalR = async () => {
+    try {
+      await signalRService.start();
+      
+      signalRService.onEmailStatusUpdated((update: EmailStatusUpdate) => {
+        console.log('📧 [ENHANCED-EMAIL] Received email status update:', update);
+        
+        // Update the sent jobs with new status
+        setSentJobs(prev => prev.map(job => 
+          job.id === update.emailJobId 
+            ? { ...job, status: update.status as any }
+            : job
+        ));
+        
+        // Show toast notification for status changes
+        if (update.status !== 'pending') {
+          toast.success(`Email status updated to ${update.status} for ${update.employeeName || 'employee'}`);
+        }
+      });
+      
+      // Join user group for real-time updates
+      if (user?.id) {
+        await signalRService.joinUserGroup(user.id);
+      }
+    } catch (error) {
+      console.error('Failed to initialize SignalR for email dialog:', error);
+    }
+  };
 
   const loadTemplatesAndSignatures = async () => {
     try {
@@ -90,6 +151,20 @@ export function EnhancedEmailDialog({
   };
 
   const initializeEmailData = () => {
+    console.log('🔄 [EMAIL-DIALOG] initializeEmailData called - this will reset form data!');
+    console.log('🔄 [EMAIL-DIALOG] Current emailData length:', emailData.length);
+    console.log('🔄 [EMAIL-DIALOG] Employees length:', employees.length);
+    
+    // Check if user has made any changes - if so, don't reset
+    const hasUserChanges = emailData.some((data, index) => 
+      data && (isContentModified(index) || isSubjectModified(index))
+    );
+    
+    if (hasUserChanges) {
+      console.log('⚠️ [EMAIL-DIALOG] User has made changes, skipping initialization to preserve edits');
+      return;
+    }
+    
     const data = employees.map(employee => {
       // Replace placeholders in email template
       let content = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
@@ -165,6 +240,46 @@ export function EnhancedEmailDialog({
     const updatedData = [...emailData];
     updatedData[index] = { ...updatedData[index], [field]: value };
     setEmailData(updatedData);
+  };
+
+  const isContentModified = (employeeIndex: number) => {
+    if (employeeIndex >= employees.length) return false;
+    const employee = employees[employeeIndex];
+    const currentData = emailData[employeeIndex];
+    if (!currentData || !employee) return false;
+
+    // Check if content differs from template
+    const templateContent = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
+    const processedTemplateContent = templateContent
+      .replace(/\{employeeName\}/g, employee.name || 'Employee')
+      .replace(/\{employeeEmail\}/g, employee.email || '')
+      .replace(/\{employeeId\}/g, employee.employeeId || '')
+      .replace(/\{department\}/g, employee.department || '')
+      .replace(/\{designation\}/g, employee.designation || '')
+      .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+      .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+
+    return currentData.content !== processedTemplateContent;
+  };
+
+  const isSubjectModified = (employeeIndex: number) => {
+    if (employeeIndex >= employees.length) return false;
+    const employee = employees[employeeIndex];
+    const currentData = emailData[employeeIndex];
+    if (!currentData || !employee) return false;
+
+    // Check if subject differs from template
+    const templateSubject = emailTemplateSubject || `Document Request - ${employee.name}`;
+    const processedTemplateSubject = templateSubject
+      .replace(/\{employeeName\}/g, employee.name || 'Employee')
+      .replace(/\{employeeEmail\}/g, employee.email || '')
+      .replace(/\{employeeId\}/g, employee.employeeId || '')
+      .replace(/\{department\}/g, employee.department || '')
+      .replace(/\{designation\}/g, employee.designation || '')
+      .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+      .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+
+    return currentData.subject !== processedTemplateSubject;
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -359,6 +474,17 @@ export function EnhancedEmailDialog({
           const resolvedAttachments = await Promise.all(extraAttachments);
 
           // Send email with PDF
+          console.log('📧 [ENHANCED-EMAIL] Sending email for employee:', data.employee.name, 'to:', data.employee.email);
+          console.log('📧 [ENHANCED-EMAIL] Request details:', {
+            tabId,
+            employeeId: data.employee.employeeId,
+            templateId: data.selectedTemplate!.id,
+            signaturePath: data.selectedSignature?.id,
+            subject: data.subject,
+            content: data.content,
+            contentLength: data.content?.length || 0
+          });
+          
           const response = await apiService.sendEmailWithPdf(tabId, {
             employeeId: data.employee.employeeId,
             templateId: data.selectedTemplate!.id,
@@ -369,6 +495,8 @@ export function EnhancedEmailDialog({
             employeeData: data.employee.data || {},
             extraAttachments: resolvedAttachments
           });
+          
+          console.log('📧 [ENHANCED-EMAIL] Email response received:', response);
 
           if (response.success && response.data) {
             const updatedJob = {
@@ -388,7 +516,17 @@ export function EnhancedEmailDialog({
           setSendingProgress(Math.round(((i + 1) / emailJobs.length) * 100));
           
         } catch (error) {
-          console.error(`Failed to send email to ${job.employeeEmail}:`, error);
+          console.error(`❌ [ENHANCED-EMAIL] Failed to send email to ${job.employeeEmail}:`, error);
+          
+          // Log more details about the error
+          if (error instanceof Error) {
+            console.error('❌ [ENHANCED-EMAIL] Error details:', {
+              name: error.name,
+              message: error.message,
+              stack: error.stack
+            });
+          }
+          
           const failedJob = {
             ...job,
             status: 'failed' as const,
@@ -615,7 +753,38 @@ export function EnhancedEmailDialog({
 
                         {/* Subject */}
                         <div className="space-y-2">
-                          <Label htmlFor="subject">Subject</Label>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor="subject">Subject</Label>
+                              {isSubjectModified(currentEmployeeIndex) && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Modified
+                                </Badge>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const employee = employees[currentEmployeeIndex];
+                                if (employee) {
+                                  const templateSubject = emailTemplateSubject || `Document Request - ${employee.name}`;
+                                  const processedSubject = templateSubject
+                                    .replace(/\{employeeName\}/g, employee.name || 'Employee')
+                                    .replace(/\{employeeEmail\}/g, employee.email || '')
+                                    .replace(/\{employeeId\}/g, employee.employeeId || '')
+                                    .replace(/\{department\}/g, employee.department || '')
+                                    .replace(/\{designation\}/g, employee.designation || '')
+                                    .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+                                    .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+                                  updateEmployeeEmail(currentEmployeeIndex, 'subject', processedSubject);
+                                }
+                              }}
+                            >
+                              Reset to Template
+                            </Button>
+                          </div>
                           <Input
                             id="subject"
                             value={currentEmployeeData.subject}
@@ -637,7 +806,38 @@ export function EnhancedEmailDialog({
 
                         {/* Content */}
                         <div className="space-y-2">
-                          <Label htmlFor="content">Message</Label>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor="content">Message</Label>
+                              {isContentModified(currentEmployeeIndex) && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Modified
+                                </Badge>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const employee = employees[currentEmployeeIndex];
+                                if (employee) {
+                                  const templateContent = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
+                                  const processedContent = templateContent
+                                    .replace(/\{employeeName\}/g, employee.name || 'Employee')
+                                    .replace(/\{employeeEmail\}/g, employee.email || '')
+                                    .replace(/\{employeeId\}/g, employee.employeeId || '')
+                                    .replace(/\{department\}/g, employee.department || '')
+                                    .replace(/\{designation\}/g, employee.designation || '')
+                                    .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+                                    .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+                                  updateEmployeeEmail(currentEmployeeIndex, 'content', processedContent);
+                                }
+                              }}
+                            >
+                              Reset to Template
+                            </Button>
+                          </div>
                           <Textarea
                             id="content"
                             rows={8}
@@ -714,7 +914,7 @@ export function EnhancedEmailDialog({
                         
                         <Separator />
                         
-                        <div className="bg-white text-black p-4 rounded border">
+                        <div className="bg-background text-foreground p-4 rounded border">
                           <div className="mb-4">
                             <h4 className="font-medium mb-2">Email Content:</h4>
                             <pre className="whitespace-pre-wrap font-sans text-sm">

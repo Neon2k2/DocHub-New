@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, FileText, Mail, Database, Edit3, Eye } from 'lucide-react';
+import { Upload, FileText, Mail, Database, Edit3, Eye, MousePointer, CheckCircle, AlertCircle, Clock, X } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -18,6 +18,9 @@ import { DocumentTemplate, GeneratedDocument, EmailJob, Signature } from '../../
 import { useTabData } from '../../hooks/useTabData';
 import { excelService, ExcelData } from '../../services/excel.service';
 import { ExcelUploadDialog } from './ExcelUploadDialog';
+import { EmailHistoryDialog } from './EmailHistoryDialog';
+import { signalRService, EmailStatusUpdate } from '../../services/signalr.service';
+import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
 
 interface DynamicLetterTabProps {
@@ -25,6 +28,7 @@ interface DynamicLetterTabProps {
 }
 
 export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
+  const { user } = useAuth();
   const [selectedEmployees, setSelectedEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [dynamicFields, setDynamicFields] = useState<DynamicField[]>([]);
@@ -45,7 +49,11 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   // Email state
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showEnhancedEmailDialog, setShowEnhancedEmailDialog] = useState(false);
+  const [showEmailHistoryDialog, setShowEmailHistoryDialog] = useState(false);
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'employees' | 'history'>('employees');
   
   // Generating state
   const [showGeneratingDialog, setShowGeneratingDialog] = useState(false);
@@ -393,7 +401,50 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     loadData();
     loadStatistics();
     loadEmailTemplate();
-  }, [tab.id]);
+    
+    let callbackRef: ((update: EmailStatusUpdate) => void) | null = null;
+    initializeSignalR(user).then(callback => {
+      callbackRef = callback;
+    });
+    
+    return () => {
+      if (callbackRef) {
+        signalRService.offEmailStatusUpdated(callbackRef);
+      }
+    };
+  }, [tab.id, user]);
+
+  const initializeSignalR = async (user: any) => {
+    try {
+      await signalRService.start();
+      
+      const handleEmailStatusUpdate = (update: EmailStatusUpdate) => {
+        console.log('📧 [DYNAMIC-TAB] Received email status update:', update);
+        
+        // Update the email jobs list if we're on the history tab
+        if (activeTab === 'history') {
+          setEmailJobs(prev => prev.map(job => 
+            job.id === update.emailJobId 
+              ? { ...job, status: update.status as any }
+              : job
+          ));
+        }
+      };
+      
+      signalRService.onEmailStatusUpdated(handleEmailStatusUpdate);
+      
+      // Manually join user group as backup
+      if (user?.id) {
+        await signalRService.joinUserGroup(user.id);
+      }
+      
+      // Store the callback reference for cleanup
+      return handleEmailStatusUpdate;
+    } catch (error) {
+      console.error('Failed to initialize SignalR for email status updates:', error);
+      return null;
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -486,15 +537,34 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
 
   const handleHistory = async () => {
     try {
-      // Load all tab data for history view
-      const response = await apiService.getTabData(tab.id, { page: 1, pageSize: 1000 });
+      setActiveTab('history');
+      await loadEmailHistory();
+    } catch (error) {
+      console.error('Error loading email history:', error);
+      toast.error('Failed to load email history');
+    }
+  };
+
+  const loadEmailHistory = async () => {
+    try {
+      setLoading(true);
+      console.log('📧 [DYNAMIC-TAB] Loading email history for tab:', tab.id);
+      const response = await apiService.getTabEmailHistory(tab.id);
+      console.log('📊 [DYNAMIC-TAB] Email history response:', response);
+      
       if (response.success && response.data) {
-        // Show history in a dialog or navigate to history page
-        toast.info('History functionality coming soon');
+        console.log('✅ [DYNAMIC-TAB] Successfully loaded', response.data.length, 'email jobs');
+        setEmailJobs(response.data);
+      } else {
+        console.log('⚠️ [DYNAMIC-TAB] No email history data received');
+        setEmailJobs([]);
       }
     } catch (error) {
-      console.error('Error loading history:', error);
-      toast.error('Failed to load history');
+      console.error('❌ [DYNAMIC-TAB] Error loading email history:', error);
+      toast.error('Failed to load email history');
+      setEmailJobs([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -722,25 +792,35 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       {/* Action Tabs */}
       <div className="flex border-b border-gray-300 dark:border-gray-700">
         <button
-          onClick={handleViewRequests}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-900 dark:text-white border-b-2 border-blue-500 bg-gray-50 dark:bg-gray-800"
+          onClick={() => setActiveTab('employees')}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'employees'
+              ? 'text-gray-900 dark:text-white border-blue-500 bg-gray-50 dark:bg-gray-800'
+              : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-transparent hover:border-gray-400 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+          }`}
         >
-          <FileText className="h-4 w-4" />
-          <span className="font-medium">View Requests</span>
+          <Database className="h-4 w-4" />
+          <span className="font-medium">Employees</span>
         </button>
         
         <button
           onClick={handleHistory}
-          className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-b-2 border-transparent hover:border-gray-400 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'history'
+              ? 'text-gray-900 dark:text-white border-blue-500 bg-gray-50 dark:bg-gray-800'
+              : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white border-transparent hover:border-gray-400 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+          }`}
         >
           <FileText className="h-4 w-4" />
           <span className="font-medium">History</span>
         </button>
       </div>
 
-      {/* Employee Data Section */}
-      <Card className="glass-panel border-glass-border">
-        <CardContent className="p-6">
+      {/* Content Section */}
+      {activeTab === 'employees' && (
+        <>
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Database className="h-6 w-6 text-blue-500" />
@@ -1106,6 +1186,109 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
 
         </CardContent>
       </Card>
+      </>
+      )}
+
+      {/* History Section */}
+      {activeTab === 'history' && (
+        <Card className="glass-panel border-glass-border">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <FileText className="h-6 w-6 text-blue-500" />
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Email History</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">View all email communications for this tab</p>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                <span className="ml-2 text-gray-600 dark:text-gray-400">Loading email history...</span>
+              </div>
+            ) : emailJobs.length > 0 ? (
+              <div className="space-y-4">
+                {emailJobs.map((job) => (
+                  <div key={job.id} className="flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors">
+                    <div className="flex-shrink-0">
+                      {job.status === 'sent' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                      {job.status === 'delivered' && <CheckCircle className="h-5 w-5 text-blue-500" />}
+                      {job.status === 'opened' && <Eye className="h-5 w-5 text-purple-500" />}
+                      {job.status === 'clicked' && <MousePointer className="h-5 w-5 text-indigo-500" />}
+                      {job.status === 'bounced' && <AlertCircle className="h-5 w-5 text-red-500" />}
+                      {job.status === 'dropped' && <X className="h-5 w-5 text-red-500" />}
+                      {job.status === 'pending' && <Clock className="h-5 w-5 text-yellow-500" />}
+                      {job.status === 'failed' && <X className="h-5 w-5 text-red-500" />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium truncate">{job.employeeName || 'Unknown Employee'}</h4>
+                          <span className="text-sm text-muted-foreground">
+                            {job.employeeEmail || job.recipientEmail || 'No email'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            job.status === 'sent' ? 'bg-green-100 text-green-800' :
+                            job.status === 'delivered' ? 'bg-blue-100 text-blue-800' :
+                            job.status === 'opened' ? 'bg-purple-100 text-purple-800' :
+                            job.status === 'clicked' ? 'bg-indigo-100 text-indigo-800' :
+                            job.status === 'bounced' ? 'bg-red-100 text-red-800' :
+                            job.status === 'dropped' ? 'bg-red-100 text-red-800' :
+                            job.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {job.status}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(job.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-sm text-muted-foreground">
+                        <p className="truncate">{job.subject}</p>
+                        {job.errorMessage && (
+                          <p className="text-red-500 text-xs mt-1">
+                            Error: {job.errorMessage}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                        {job.sentAt && (
+                          <span>Sent: {new Date(job.sentAt).toLocaleString()}</span>
+                        )}
+                        {job.deliveredAt && (
+                          <span>Delivered: {new Date(job.deliveredAt).toLocaleString()}</span>
+                        )}
+                        {job.openedAt && (
+                          <span>Opened: {new Date(job.openedAt).toLocaleString()}</span>
+                        )}
+                        {job.clickedAt && (
+                          <span>Clicked: {new Date(job.clickedAt).toLocaleString()}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
+                  <Mail className="h-8 w-8 text-gray-600" />
+                </div>
+                <p className="text-lg font-medium mb-2">No email history found</p>
+                <p className="text-sm">No emails have been sent for this tab yet</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Dialogs */}
       {showExcelUpload && (
@@ -1262,6 +1445,14 @@ HR Department`}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Email History Dialog */}
+      <EmailHistoryDialog
+        open={showEmailHistoryDialog}
+        onOpenChange={setShowEmailHistoryDialog}
+        tabId={tab.id}
+        tabName={tab.name}
+      />
     </div>
   );
 }

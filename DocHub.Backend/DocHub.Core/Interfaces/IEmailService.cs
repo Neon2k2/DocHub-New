@@ -24,4 +24,7 @@ public interface IEmailService
     Task<Dictionary<string, object>> GetEmailAnalyticsAsync(Guid? letterTypeId = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<IEnumerable<EmailJobDto>> GetFailedEmailsAsync(int page = 1, int pageSize = 20);
     Task<bool> RetryFailedEmailAsync(Guid jobId, string userId);
+
+    // Email Status Polling
+    Task PollEmailStatusesAsync();
 }

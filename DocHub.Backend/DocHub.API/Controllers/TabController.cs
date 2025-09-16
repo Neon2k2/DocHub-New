@@ -27,10 +27,12 @@ public class TabController : ControllerBase
     private readonly IDbContext _dbContext;
     private readonly IEmailService _emailService;
     private readonly IDepartmentAccessService _departmentAccessService;
+    private readonly IRealTimeService _realTimeService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<TabController> _logger;
+    private readonly IServiceProvider _serviceProvider;
 
-    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IDepartmentAccessService departmentAccessService, IConfiguration configuration, ILogger<TabController> logger)
+    public TabController(ITabManagementService tabService, IDynamicLetterGenerationService letterGenerationService, ITemplateService templateService, IRepository<TableSchema> tableSchemaRepository, IDbContext dbContext, IEmailService emailService, IDepartmentAccessService departmentAccessService, IRealTimeService realTimeService, IConfiguration configuration, ILogger<TabController> logger, IServiceProvider serviceProvider)
     {
         _tabService = tabService;
         _letterGenerationService = letterGenerationService;
@@ -39,8 +41,10 @@ public class TabController : ControllerBase
         _dbContext = dbContext;
         _emailService = emailService;
         _departmentAccessService = departmentAccessService;
+        _realTimeService = realTimeService;
         _configuration = configuration;
         _logger = logger;
+        _serviceProvider = serviceProvider;
     }
 
     // Letter Type Management Endpoints
@@ -683,12 +687,16 @@ public class TabController : ControllerBase
             // Try to get from database first
             try
             {
+                _logger.LogInformation("Querying email jobs for tab {TabId}", tabId);
+                
                 var emailJobs = await _dbContext.EmailJobs
                     .Where(e => e.LetterTypeDefinitionId == Guid.Parse(tabId))
                     .OrderByDescending(e => e.CreatedAt)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
                     .ToListAsync();
+
+                _logger.LogInformation("Found {Count} email jobs for tab {TabId}", emailJobs.Count, tabId);
 
                 var emailJobDtos = emailJobs.Select(e => new EmailJobDto
                 {
@@ -726,6 +734,7 @@ public class TabController : ControllerBase
                     UpdatedAt = e.UpdatedAt
                 }).ToList();
 
+                _logger.LogInformation("Returning {Count} email job DTOs for tab {TabId}", emailJobDtos.Count, tabId);
                 return Ok(new ApiResponse<IEnumerable<EmailJobDto>> { Success = true, Data = emailJobDtos });
             }
             catch (Exception dbEx)
@@ -807,7 +816,7 @@ public class TabController : ControllerBase
                throw new UnauthorizedAccessException("User ID not found in token");
     }
 
-    private async Task SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson, string? ccEmails = null)
+    private async Task<string?> SendEmailDirectlyAsync(string subject, string content, string toEmail, string toName, string attachmentsJson, string? ccEmails = null)
     {
         try
         {
@@ -864,13 +873,18 @@ public class TabController : ControllerBase
                 }
             }
 
+            // Ensure we have content for the email
+            var emailContent = string.IsNullOrEmpty(content) 
+                ? "Please find the attached document for your reference." 
+                : content;
+            
             // Create email message
             var message = new SendGrid.Helpers.Mail.SendGridMessage()
             {
                 From = new SendGrid.Helpers.Mail.EmailAddress(fromEmail, fromName),
                 Subject = subject,
-                PlainTextContent = StripHtml(content),
-                HtmlContent = content
+                PlainTextContent = StripHtml(emailContent),
+                HtmlContent = emailContent
             };
 
             message.AddTo(new SendGrid.Helpers.Mail.EmailAddress(toEmail, toName));
@@ -909,12 +923,44 @@ public class TabController : ControllerBase
             if (response.IsSuccessStatusCode)
             {
                 _logger.LogInformation("Email sent successfully to {Email} with status {StatusCode}", toEmail, response.StatusCode);
+                
+                // Log all response headers for debugging
+                _logger.LogInformation("SendGrid response headers:");
+                foreach (var header in response.Headers)
+                {
+                    _logger.LogInformation("  {Key}: {Value}", header.Key, string.Join(", ", header.Value));
+                }
+                
+                // Extract SendGrid message ID from response headers
+                var messageId = response.Headers.GetValues("X-Message-Id").FirstOrDefault();
+                if (!string.IsNullOrEmpty(messageId))
+                {
+                    _logger.LogInformation("SendGrid message ID: {MessageId}", messageId);
+                    return messageId; // Return the message ID
+                }
+                else
+                {
+                    _logger.LogWarning("No SendGrid message ID found in response headers");
+                    
+                    // Try alternative header names
+                    var altMessageId = response.Headers.GetValues("x-message-id").FirstOrDefault() ??
+                                     response.Headers.GetValues("Message-Id").FirstOrDefault() ??
+                                     response.Headers.GetValues("message-id").FirstOrDefault();
+                    
+                    if (!string.IsNullOrEmpty(altMessageId))
+                    {
+                        _logger.LogInformation("SendGrid message ID (alternative): {MessageId}", altMessageId);
+                        return altMessageId;
+                    }
+                }
             }
             else
             {
                 var responseBody = await response.Body.ReadAsStringAsync();
                 throw new HttpRequestException($"SendGrid API returned status code: {response.StatusCode}. Response: {responseBody}");
             }
+            
+            return null; // No message ID available
         }
         catch (Exception ex)
         {
@@ -998,10 +1044,173 @@ public class TabController : ControllerBase
             {
                 _logger.LogWarning(dbEx, "Failed to save email history to database for job {EmailJobId}. Using file system only.", emailJob.Id);
             }
+
+            // Send SignalR notification for email status update
+            try
+            {
+                var statusUpdate = new EmailStatusUpdate
+                {
+                    EmailJobId = emailJob.Id,
+                    Status = emailJob.Status,
+                    Timestamp = emailJob.UpdatedAt,
+                    Reason = emailJob.ErrorMessage,
+                    EmployeeName = emailJob.RecipientName,
+                    EmployeeEmail = emailJob.RecipientEmail
+                };
+
+                // Get the current user ID for the notification
+                var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    await _realTimeService.NotifyEmailStatusUpdateAsync(userId, statusUpdate);
+                    _logger.LogInformation("📡 [SIGNALR] Sent email status update for job {EmailJobId} with status {Status}", emailJob.Id, emailJob.Status);
+                }
+                else
+                {
+                    _logger.LogWarning("📡 [SIGNALR] No user ID found, skipping SignalR notification for job {EmailJobId}", emailJob.Id);
+                }
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(signalREx, "Failed to send SignalR notification for email job {EmailJobId}", emailJob.Id);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving email history for job {EmailJobId}", emailJob.Id);
+        }
+    }
+
+    private async Task SaveEmailHistoryInBackgroundAsync(EmailJob emailJob, string status, string? errorMessage, string userId, IDbContext? dbContext = null, IRealTimeService? realTimeService = null, ILogger<TabController>? logger = null)
+    {
+        try
+        {
+            // Use passed services or create new scope if not provided
+            IDbContext? contextToUse;
+            IRealTimeService? realTimeToUse;
+            ILogger<TabController>? loggerToUse;
+            
+            if (dbContext != null && realTimeService != null && logger != null)
+            {
+                // Use the passed services (from background task)
+                contextToUse = dbContext;
+                realTimeToUse = realTimeService;
+                loggerToUse = logger;
+            }
+            else
+            {
+                // Create a new service scope (from main request)
+                using var scope = _serviceProvider.CreateScope();
+                contextToUse = scope.ServiceProvider.GetRequiredService<IDbContext>();
+                realTimeToUse = scope.ServiceProvider.GetRequiredService<IRealTimeService>();
+                loggerToUse = scope.ServiceProvider.GetRequiredService<ILogger<TabController>>();
+            }
+            
+            // Ensure the database context is properly configured
+            loggerToUse.LogInformation("📡 [SIGNALR] Background task started for email job {EmailJobId}", emailJob.Id);
+
+            // Update email job status
+            loggerToUse.LogInformation("📧 [BACKGROUND] Updating email job {EmailJobId} status from {OldStatus} to {NewStatus}", 
+                emailJob.Id, emailJob.Status, status);
+            
+            emailJob.Status = status;
+            emailJob.UpdatedAt = DateTime.UtcNow;
+            
+            if (status == "sent")
+            {
+                emailJob.SentAt = DateTime.UtcNow;
+                loggerToUse.LogInformation("📧 [BACKGROUND] Set SentAt to {SentAt} for email job {EmailJobId}", 
+                    emailJob.SentAt, emailJob.Id);
+            }
+            else if (status == "failed" && !string.IsNullOrEmpty(errorMessage))
+            {
+                emailJob.ErrorMessage = errorMessage;
+            }
+            else if (status == "queued" && !string.IsNullOrEmpty(errorMessage))
+            {
+                emailJob.ErrorMessage = errorMessage;
+            }
+
+            // Always save to file system first (more reliable)
+            await SaveEmailHistoryToFileAsync(emailJob);
+            
+            // Try to save to database as well (if possible)
+            try
+            {
+                // Check if the email job already exists in the database
+                var existingJob = await contextToUse.EmailJobs.FindAsync(emailJob.Id);
+                if (existingJob != null)
+                {
+                    loggerToUse.LogInformation("📧 [BACKGROUND] Found existing email job {EmailJobId} in database, updating status from {OldStatus} to {NewStatus}", 
+                        emailJob.Id, existingJob.Status, emailJob.Status);
+                    
+                    // Update existing job
+                    existingJob.Status = emailJob.Status;
+                    existingJob.UpdatedAt = emailJob.UpdatedAt;
+                    existingJob.SentAt = emailJob.SentAt;
+                    existingJob.ErrorMessage = emailJob.ErrorMessage;
+                    existingJob.SendGridMessageId = emailJob.SendGridMessageId; // Also update SendGrid message ID
+                    contextToUse.EmailJobs.Update(existingJob);
+                }
+                else
+                {
+                    loggerToUse.LogInformation("📧 [BACKGROUND] Email job {EmailJobId} not found in database, adding new job with status {Status}", 
+                        emailJob.Id, emailJob.Status);
+                    // Add new job
+                    await contextToUse.EmailJobs.AddAsync(emailJob);
+                }
+                
+                await contextToUse.SaveChangesAsync();
+                loggerToUse.LogInformation("📧 [BACKGROUND] Email history saved to database for job {EmailJobId} with status {Status}", 
+                    emailJob.Id, emailJob.Status);
+            }
+            catch (Exception dbEx)
+            {
+                loggerToUse.LogWarning(dbEx, "Failed to save email history to database for job {EmailJobId}. Using file system only.", emailJob.Id);
+            }
+
+            // Send SignalR notification for email status update
+            try
+            {
+                var statusUpdate = new EmailStatusUpdate
+                {
+                    EmailJobId = emailJob.Id,
+                    Status = emailJob.Status,
+                    Timestamp = emailJob.UpdatedAt,
+                    Reason = emailJob.ErrorMessage,
+                    EmployeeName = emailJob.RecipientName,
+                    EmployeeEmail = emailJob.RecipientEmail
+                };
+
+                // Use the passed user ID for the notification
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    try
+                    {
+                        loggerToUse.LogInformation("📡 [SIGNALR] Sending email status update for job {EmailJobId} with status {Status} to user {UserId}", 
+                            emailJob.Id, emailJob.Status, userId);
+                        await realTimeToUse.NotifyEmailStatusUpdateAsync(userId, statusUpdate);
+                        loggerToUse.LogInformation("📡 [SIGNALR] Successfully sent email status update for job {EmailJobId} with status {Status} to user {UserId}", 
+                            emailJob.Id, emailJob.Status, userId);
+                    }
+                    catch (Exception signalREx)
+                    {
+                        loggerToUse.LogError(signalREx, "📡 [SIGNALR] Failed to send notification for job {EmailJobId} to user {UserId}", emailJob.Id, userId);
+                    }
+                }
+                else
+                {
+                    loggerToUse.LogWarning("📡 [SIGNALR] No user ID provided, skipping SignalR notification for job {EmailJobId}", emailJob.Id);
+                }
+            }
+            catch (Exception signalREx)
+            {
+                loggerToUse.LogWarning(signalREx, "Failed to send SignalR notification for email job {EmailJobId}", emailJob.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving email history in background for job {EmailJobId}", emailJob.Id);
         }
     }
 
@@ -1127,7 +1336,13 @@ public class TabController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("Sending email with PDF for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+            _logger.LogInformation("📧 [SEND-EMAIL] Received request for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+            _logger.LogInformation("📧 [SEND-EMAIL] Request details - Subject: {Subject}, Content: {Content}, Content length: {ContentLength}", 
+                request.Subject, request.Content, request.Content?.Length ?? 0);
+            
+            // Add a timeout to prevent hanging - increased to 5 minutes for PDF generation
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            cts.Token.ThrowIfCancellationRequested();
 
             // Get the tab
             var tab = await _tabService.GetLetterTypeAsync(Guid.Parse(tabId));
@@ -1147,21 +1362,30 @@ public class TabController : ControllerBase
             var dynamicTab = ConvertToDynamicTabDto(tab);
 
             // Get employee from the dynamic table
+            _logger.LogInformation("📧 [SEND-EMAIL] Getting employee from dynamic table for ID: {EmployeeId}", request.EmployeeId);
             var employee = await GetEmployeeFromDynamicTable(dynamicTab, request.EmployeeId);
+            _logger.LogInformation("📧 [SEND-EMAIL] Employee retrieved: {EmployeeName}, Email: {Email}", employee?.Name ?? "null", employee?.Email ?? "null");
+            
             if (employee == null)
             {
+                _logger.LogError("📧 [SEND-EMAIL] Employee not found for ID: {EmployeeId}", request.EmployeeId);
                 return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Employee not found" });
             }
 
             if (string.IsNullOrEmpty(employee.Email))
             {
+                _logger.LogError("📧 [SEND-EMAIL] Employee email not found for: {EmployeeName}", employee.Name);
                 return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Employee email not found" });
             }
 
             // Generate PDF
+            _logger.LogInformation("📧 [SEND-EMAIL] Starting PDF generation for employee: {EmployeeName}", employee.Name);
             var pdfBytes = await _letterGenerationService.GeneratePdfPreviewAsync(dynamicTab, employee, template, request.SignaturePath, request.EmployeeData);
+            _logger.LogInformation("📧 [SEND-EMAIL] PDF generation completed. Size: {Size} bytes", pdfBytes?.Length ?? 0);
+            
             if (pdfBytes == null)
             {
+                _logger.LogError("📧 [SEND-EMAIL] PDF generation failed for employee: {EmployeeName}", employee.Name);
                 return BadRequest(new ApiResponse<EmailJobDto> { Success = false, Message = "Failed to generate PDF" });
             }
 
@@ -1193,11 +1417,12 @@ public class TabController : ControllerBase
             var attachmentsJson = JsonSerializer.Serialize(attachments);
 
             // Create email job for response (without database save for now)
+            _logger.LogInformation("📧 [SEND-EMAIL] Creating email job for employee: {EmployeeName}, email: {Email}", employee.Name, employee.Email);
             var emailJob = new EmailJob
             {
                 Id = Guid.NewGuid(),
                 LetterTypeDefinitionId = Guid.Parse(tabId),
-                ExcelUploadId = Guid.Empty, // Not used for dynamic tabs
+                ExcelUploadId = null, // Not used for dynamic tabs
                 Subject = request.Subject,
                 Content = request.Content,
                 RecipientEmail = employee.Email,
@@ -1208,34 +1433,112 @@ public class TabController : ControllerBase
                 UpdatedAt = DateTime.UtcNow,
                 Attachments = attachmentsJson
             };
+            _logger.LogInformation("📧 [SEND-EMAIL] Email job created with ID: {EmailJobId}", emailJob.Id);
 
+            // Save initial email job status to database
+            try
+            {
+                // Create a new context scope for the initial save
+                using var initialScope = HttpContext.RequestServices.CreateScope();
+                var initialDbContext = initialScope.ServiceProvider.GetRequiredService<DocHubDbContext>();
+                
+                // Add the email job to the database
+                await initialDbContext.EmailJobs.AddAsync(emailJob);
+                await initialDbContext.SaveChangesAsync();
+                
+                _logger.LogInformation("📧 [SEND-EMAIL] Initial email job saved to database with ID: {EmailJobId}", emailJob.Id);
+                
+                // Send immediate SignalR notification for pending status
+                try
+                {
+                    var pendingUpdate = new EmailStatusUpdate
+                    {
+                        EmailJobId = emailJob.Id,
+                        Status = "pending",
+                        Timestamp = emailJob.CreatedAt,
+                        EmployeeName = emailJob.RecipientName,
+                        EmployeeEmail = emailJob.RecipientEmail
+                    };
+                    
+                    var userId = GetCurrentUserId();
+                    if (!string.IsNullOrEmpty(userId))
+                    {
+                        await _realTimeService.NotifyEmailStatusUpdateAsync(userId, pendingUpdate);
+                        _logger.LogInformation("📡 [SIGNALR] Sent pending status notification for job {EmailJobId}", emailJob.Id);
+                    }
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(signalREx, "Failed to send pending status notification for job {EmailJobId}", emailJob.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save initial email job to database for job {EmailJobId}", emailJob.Id);
+                // Still save to file system as fallback
+                await SaveEmailHistoryToFileAsync(emailJob);
+            }
+
+            // Capture user ID before starting background task
+            var currentUserId = GetCurrentUserId();
+            
             // Send email via SendGrid directly (bypassing EmailService database dependency)
             _ = Task.Run(async () =>
             {
+                // Create a new service scope for the background task to avoid disposal issues
+                using var backgroundScope = _serviceProvider.CreateScope();
+                var backgroundLogger = backgroundScope.ServiceProvider.GetRequiredService<ILogger<TabController>>();
+                var backgroundDbContext = backgroundScope.ServiceProvider.GetRequiredService<IDbContext>();
+                var backgroundRealTimeService = backgroundScope.ServiceProvider.GetRequiredService<IRealTimeService>();
+                
                 try
                 {
-                    await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson, request.Cc);
+                    backgroundLogger.LogInformation("🚀 [BACKGROUND-TASK] Starting background email task for job {EmailJobId}", emailJob.Id);
+                    var sendGridMessageId = await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson, request.Cc);
                     
-                    // Try to save email history (with error handling)
-                    await SaveEmailHistoryAsync(emailJob, "sent", null);
+                    // Update email job status to sent
+                    emailJob.Status = "sent";
+                    emailJob.SentAt = DateTime.UtcNow;
+                    emailJob.UpdatedAt = DateTime.UtcNow;
                     
-                    _logger.LogInformation("Email sent successfully to {Email}", employee.Email);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error sending email for job {EmailJobId} to {Email}", emailJob.Id, employee.Email);
-                    
-                    // Check if it's a SendGrid credits issue
-                    if (ex.Message.Contains("Maximum credits exceeded"))
+                    // Set SendGrid message ID for status polling
+                    if (!string.IsNullOrEmpty(sendGridMessageId))
                     {
-                        _logger.LogWarning("SendGrid credits exceeded. Email queued for later sending.");
-                        await SaveEmailHistoryAsync(emailJob, "queued", "SendGrid credits exceeded - will retry later");
+                        emailJob.SendGridMessageId = sendGridMessageId;
+                        backgroundLogger.LogInformation("Email sent successfully to {Email} with SendGrid message ID: {MessageId}", employee.Email, sendGridMessageId);
                     }
                     else
                     {
-                        // Try to save failed status
-                        await SaveEmailHistoryAsync(emailJob, "failed", ex.Message);
+                        backgroundLogger.LogWarning("Email sent successfully to {Email} but no SendGrid message ID received", employee.Email);
                     }
+                    
+                    // Save updated status and send SignalR notification using the background scope
+                    backgroundLogger.LogInformation("📧 [BACKGROUND-TASK] Email sent successfully, updating status to 'sent' for job {EmailJobId}", emailJob.Id);
+                    await SaveEmailHistoryInBackgroundAsync(emailJob, "sent", null, currentUserId, backgroundDbContext, backgroundRealTimeService, backgroundLogger);
+                    backgroundLogger.LogInformation("✅ [BACKGROUND-TASK] Background email task completed successfully for job {EmailJobId}", emailJob.Id);
+                }
+                catch (Exception ex)
+                {
+                    backgroundLogger.LogError(ex, "❌ [BACKGROUND-TASK] Error sending email for job {EmailJobId} to {Email}", emailJob.Id, employee.Email);
+                    
+                    // Update email job status based on error
+                    if (ex.Message.Contains("Maximum credits exceeded"))
+                    {
+                        backgroundLogger.LogWarning("SendGrid credits exceeded. Email queued for later sending.");
+                        emailJob.Status = "queued";
+                        emailJob.ErrorMessage = "SendGrid credits exceeded - will retry later";
+                    }
+                    else
+                    {
+                        emailJob.Status = "failed";
+                        emailJob.ErrorMessage = ex.Message;
+                    }
+                    emailJob.UpdatedAt = DateTime.UtcNow;
+                    
+                    // Save failed status and send SignalR notification using the background scope
+                    backgroundLogger.LogInformation("📧 [BACKGROUND-TASK] Email failed, updating status to '{Status}' for job {EmailJobId}", emailJob.Status, emailJob.Id);
+                    await SaveEmailHistoryInBackgroundAsync(emailJob, emailJob.Status, emailJob.ErrorMessage, currentUserId, backgroundDbContext, backgroundRealTimeService, backgroundLogger);
+                    backgroundLogger.LogInformation("✅ [BACKGROUND-TASK] Background email task completed with error for job {EmailJobId}", emailJob.Id);
                 }
             });
 
@@ -1276,11 +1579,17 @@ public class TabController : ControllerBase
                 UpdatedAt = emailJob.UpdatedAt
             };
 
+            _logger.LogInformation("📧 [SEND-EMAIL] Returning response for tab: {TabId}, email job ID: {EmailJobId}, status: {Status}", tabId, emailJob.Id, emailJob.Status);
             return Ok(new ApiResponse<EmailJobDto> { Success = true, Data = emailJobDto });
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogError(ex, "⏰ [SEND-EMAIL] Request timeout for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+            return StatusCode(408, new ApiResponse<EmailJobDto> { Success = false, Message = "Request timeout" });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending email with PDF for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
+            _logger.LogError(ex, "❌ [SEND-EMAIL] Error sending email with PDF for tab: {TabId}, employee: {EmployeeId}", tabId, request.EmployeeId);
             return StatusCode(500, new ApiResponse<EmailJobDto> { Success = false, Message = "Error sending email" });
         }
     }

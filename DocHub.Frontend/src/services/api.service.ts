@@ -514,8 +514,26 @@ class ApiService {
     };
 
     const makeRequest = async (): Promise<T> => {
-      const response = await fetch(url, config);
-      return this.handleResponse<T>(response, makeRequest);
+      // Add timeout for email sending requests - increased for PDF generation
+      const timeoutMs = endpoint.includes('/send-email') ? 300000 : 60000; // 5min for email, 60s for others
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      try {
+        const response = await fetch(url, {
+          ...config,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return this.handleResponse<T>(response, makeRequest);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+      }
     };
 
     try {
@@ -1107,6 +1125,7 @@ class ApiService {
   }
 
   async sendEmailWithPdf(tabId: string, request: SendEmailWithPdfRequest): Promise<ApiResponse<EmailJob>> {
+    console.log('📧 [API-SERVICE] Sending email with PDF for tab:', tabId, 'employee:', request.employeeId);
     return this.request<ApiResponse<EmailJob>>(`/Tab/${tabId}/send-email`, {
       method: 'POST',
       body: JSON.stringify(request),

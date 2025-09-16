@@ -12,8 +12,7 @@ public class GeneratedDocument
     [Required]
     public Guid LetterTypeDefinitionId { get; set; }
 
-    [Required]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     [Required]
     public Guid TemplateId { get; set; }
@@ -36,7 +35,7 @@ public class GeneratedDocument
     public virtual LetterTypeDefinition LetterTypeDefinition { get; set; } = null!;
 
     [ForeignKey("ExcelUploadId")]
-    public virtual ExcelUpload ExcelUpload { get; set; } = null!;
+    public virtual ExcelUpload? ExcelUpload { get; set; }
 
     [ForeignKey("TemplateId")]
     public virtual DocumentTemplate Template { get; set; } = null!;

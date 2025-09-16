@@ -20,7 +20,12 @@ builder.Services.AddSwaggerGen();
 
 // Database
 builder.Services.AddDbContext<DocHubDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), 
+        sqlOptions => 
+        {
+            sqlOptions.CommandTimeout(60);
+            sqlOptions.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
+        }));
 
 // Repositories
 builder.Services.AddScoped<IDbContext>(provider => provider.GetRequiredService<DocHubDbContext>());
@@ -47,6 +52,10 @@ builder.Services.AddScoped<ISessionManagementService, SessionManagementService>(
 builder.Services.AddScoped<IPasswordPolicyService, PasswordPolicyService>();
 builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();
 builder.Services.AddScoped<IDepartmentAccessService, DepartmentAccessService>();
+
+// Background Services
+builder.Services.AddHostedService<EmailStatusPollingService>();
+Console.WriteLine("🔧 [STARTUP] EmailStatusPollingService registered as background service");
 
 // Database Initialization (Auto-migration and admin user creation)
 
@@ -91,10 +100,12 @@ builder.Services.AddCors(options =>
 builder.Services.AddLogging();
 
 var app = builder.Build();
+Console.WriteLine("🚀 [STARTUP] Application built successfully");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
+    Console.WriteLine("🔧 [STARTUP] Development environment detected, enabling Swagger");
     app.UseSwagger();
     app.UseSwaggerUI();
 }
@@ -248,4 +259,5 @@ catch (Exception ex)
     throw;
 }
 
+Console.WriteLine("🎯 [STARTUP] Starting application server...");
 app.Run();

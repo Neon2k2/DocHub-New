@@ -23,15 +23,22 @@ public class SignalRService : IRealTimeService
     {
         try
         {
-            await _hubContext.Clients.Group($"user_{userId}")
-                .SendAsync("EmailStatusUpdate", update);
-            
-            _logger.LogInformation("Email status update sent to user {UserId}: {JobId} - {Status}", 
+            _logger.LogDebug("📡 [SIGNALR] Starting email status notification for user {UserId}, job {JobId}, status {Status}", 
                 userId, update.EmailJobId, update.Status);
+            
+            var groupName = $"user_{userId}";
+            _logger.LogDebug("👥 [SIGNALR] Sending to SignalR group: {GroupName}", groupName);
+            
+            await _hubContext.Clients.Group(groupName)
+                .SendAsync("EmailStatusUpdated", update);
+            
+            _logger.LogInformation("✅ [SIGNALR] Email status update sent to user {UserId}: {JobId} - {Status} (Employee: {EmployeeName})", 
+                userId, update.EmailJobId, update.Status, update.EmployeeName ?? "Unknown");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending email status update to user {UserId}", userId);
+            _logger.LogError(ex, "❌ [SIGNALR] Error sending email status update to user {UserId}: {Message}", 
+                userId, ex.Message);
         }
     }
 

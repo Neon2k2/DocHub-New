@@ -2,13 +2,16 @@ import * as signalR from '@microsoft/signalr';
 
 export interface EmailStatusUpdate {
   emailJobId: string;
-  employeeId: string;
-  employeeName: string;
+  employeeId?: string;
+  employeeName?: string;
+  employeeEmail?: string;
   status: string;
-  oldStatus: string;
+  oldStatus?: string;
   timestamp: string;
-  eventType: string;
-  messageId: string;
+  eventType?: string;
+  messageId?: string;
+  reason?: string;
+  sendGridMessageId?: string;
 }
 
 class SignalRService {
@@ -24,13 +27,27 @@ class SignalRService {
     this.initializeConnection();
   }
 
+  // Method to reinitialize connection with new auth token
+  async reinitializeConnection(): Promise<void> {
+    await this.stop();
+    this.initializeConnection();
+    await this.start();
+  }
+
   private initializeConnection() {
     const signalRUrl = import.meta.env.VITE_SIGNALR_URL || 'http://localhost:5120/notificationHub';
+    
+    // Get the auth token from localStorage
+    const authToken = localStorage.getItem('authToken');
     
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl(signalRUrl, {
         skipNegotiation: true,
-        transport: signalR.HttpTransportType.WebSockets
+        transport: signalR.HttpTransportType.WebSockets,
+        accessTokenFactory: () => {
+          // Return the current auth token
+          return localStorage.getItem('authToken') || '';
+        }
       })
       .withAutomaticReconnect([0, 2000, 10000, 30000])
       .configureLogging(signalR.LogLevel.Information)
@@ -43,18 +60,18 @@ class SignalRService {
     if (!this.connection) return;
 
     this.connection.onclose((error) => {
-      console.log('SignalR connection closed:', error);
+      console.log('❌ [SIGNALR_FRONTEND] Connection closed:', error);
       this.isConnected = false;
       this.handleReconnection();
     });
 
     this.connection.onreconnecting((error) => {
-      console.log('SignalR reconnecting:', error);
+      console.log('🔄 [SIGNALR_FRONTEND] Reconnecting:', error);
       this.isConnected = false;
     });
 
     this.connection.onreconnected((connectionId) => {
-      console.log('SignalR reconnected:', connectionId);
+      console.log('✅ [SIGNALR_FRONTEND] Reconnected with connection ID:', connectionId);
       this.isConnected = true;
       this.reconnectAttempts = 0;
     });
@@ -62,18 +79,20 @@ class SignalRService {
 
   private async handleReconnection() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Max reconnection attempts reached');
+      console.log('❌ [SIGNALR_FRONTEND] Max reconnection attempts reached:', this.maxReconnectAttempts);
       return;
     }
 
     this.reconnectAttempts++;
-    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    console.log(`🔄 [SIGNALR_FRONTEND] Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
     setTimeout(async () => {
       try {
+        console.log('🚀 [SIGNALR_FRONTEND] Starting reconnection attempt');
         await this.start();
+        console.log('✅ [SIGNALR_FRONTEND] Reconnection successful');
       } catch (error) {
-        console.error('Reconnection failed:', error);
+        console.error('❌ [SIGNALR_FRONTEND] Reconnection failed:', error);
         this.handleReconnection();
       }
     }, this.reconnectDelay * this.reconnectAttempts);
@@ -212,6 +231,30 @@ class SignalRService {
 
   isConnectionActive(): boolean {
     return this.isConnected && this.connection?.state === signalR.HubConnectionState.Connected;
+  }
+
+  // Method to join a user group
+  async joinUserGroup(userId: string): Promise<void> {
+    if (this.connection && this.isConnected) {
+      try {
+        await this.connection.invoke('JoinGroup', `user_${userId}`);
+        console.log(`✅ [SIGNALR] Joined user group: user_${userId}`);
+      } catch (error) {
+        console.error(`❌ [SIGNALR] Failed to join user group: user_${userId}`, error);
+      }
+    }
+  }
+
+  // Method to leave a user group
+  async leaveUserGroup(userId: string): Promise<void> {
+    if (this.connection && this.isConnected) {
+      try {
+        await this.connection.invoke('LeaveGroup', `user_${userId}`);
+        console.log(`✅ [SIGNALR] Left user group: user_${userId}`);
+      } catch (error) {
+        console.error(`❌ [SIGNALR] Failed to leave user group: user_${userId}`, error);
+      }
+    }
   }
 }
 

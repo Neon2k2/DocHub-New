@@ -198,6 +198,8 @@ public class SignatureProcessingService : ISignatureProcessingService
     {
         try
         {
+            _logger.LogDebug("🔧 [SIGNATURE_OPTIMIZE] Starting signature optimization");
+            
             using var inputStream = new MemoryStream(signatureData);
             using var image = Image.FromStream(inputStream);
             
@@ -216,14 +218,17 @@ public class SignatureProcessingService : ISignatureProcessingService
                 using var outputStream = new MemoryStream();
                 var format = GetImageFormat(outputFormat);
                 resizedImage.Save(outputStream, format);
-                return outputStream.ToArray();
+                
+                _logger.LogDebug("✅ [SIGNATURE_OPTIMIZE] Signature resized and optimized");
+                return await Task.FromResult(outputStream.ToArray());
             }
 
-            return signatureData;
+            _logger.LogDebug("✅ [SIGNATURE_OPTIMIZE] Signature already optimal size");
+            return await Task.FromResult(signatureData);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error optimizing signature");
+            _logger.LogError(ex, "❌ [SIGNATURE_OPTIMIZE] Error optimizing signature");
             throw;
         }
     }
@@ -232,16 +237,22 @@ public class SignatureProcessingService : ISignatureProcessingService
     {
         try
         {
+            _logger.LogDebug("🔍 [SIGNATURE_VALIDATE] Validating signature format");
+            
             using var inputStream = new MemoryStream(imageData);
             using var image = Image.FromStream(inputStream);
             
             // Check if it's a valid image format
             var validFormats = new[] { ImageFormat.Png, ImageFormat.Jpeg, ImageFormat.Gif, ImageFormat.Bmp };
-            return validFormats.Contains(image.RawFormat);
+            var isValid = validFormats.Contains(image.RawFormat);
+            
+            _logger.LogDebug("✅ [SIGNATURE_VALIDATE] Format validation result: {IsValid}", isValid);
+            return await Task.FromResult(isValid);
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            _logger.LogError(ex, "❌ [SIGNATURE_VALIDATE] Error validating signature format");
+            return await Task.FromResult(false);
         }
     }
 
@@ -299,6 +310,8 @@ public class SignatureProcessingService : ISignatureProcessingService
 
     private async Task<Bitmap> RemoveWatermarkAutomaticAsync(Bitmap bitmap, WatermarkRemovalOptions options)
     {
+        _logger.LogDebug("🔧 [WATERMARK_REMOVE] Starting automatic watermark removal");
+        
         // Simple automatic watermark removal using edge detection
         var processedBitmap = new Bitmap(bitmap.Width, bitmap.Height);
         
@@ -321,21 +334,25 @@ public class SignatureProcessingService : ISignatureProcessingService
             }
         }
         
-        return processedBitmap;
+        _logger.LogDebug("✅ [WATERMARK_REMOVE] Automatic watermark removal completed");
+        return await Task.FromResult(processedBitmap);
     }
 
     private async Task<Bitmap> RemoveWatermarkManualAsync(Bitmap bitmap, WatermarkRemovalOptions options)
     {
+        _logger.LogDebug("🔧 [WATERMARK_REMOVE] Starting manual watermark removal");
+        
         // Manual watermark removal based on coordinates
         if (string.IsNullOrEmpty(options.ManualCoordinates))
         {
-            return bitmap;
+            _logger.LogDebug("⚠️ [WATERMARK_REMOVE] No manual coordinates provided, returning original bitmap");
+            return await Task.FromResult(bitmap);
         }
 
         try
         {
             var coordinates = JsonSerializer.Deserialize<Dictionary<string, int>>(options.ManualCoordinates);
-            if (coordinates == null) return bitmap;
+            if (coordinates == null) return await Task.FromResult(bitmap);
 
             var x = coordinates.GetValueOrDefault("x", 0);
             var y = coordinates.GetValueOrDefault("y", 0);
@@ -352,16 +369,20 @@ public class SignatureProcessingService : ISignatureProcessingService
                 }
             }
             
-            return processedBitmap;
+            _logger.LogDebug("✅ [WATERMARK_REMOVE] Manual watermark removal completed");
+            return await Task.FromResult(processedBitmap);
         }
-        catch
+        catch (Exception ex)
         {
-            return bitmap;
+            _logger.LogError(ex, "❌ [WATERMARK_REMOVE] Error in manual watermark removal");
+            return await Task.FromResult(bitmap);
         }
     }
 
     private async Task<bool> DetectWatermarkInImageAsync(Bitmap bitmap)
     {
+        _logger.LogDebug("🔍 [WATERMARK_DETECT] Starting watermark detection");
+        
         // Simple watermark detection based on color analysis
         var whitePixels = 0;
         var totalPixels = bitmap.Width * bitmap.Height;
@@ -379,11 +400,16 @@ public class SignatureProcessingService : ISignatureProcessingService
         }
         
         var whitePixelRatio = (double)whitePixels / (totalPixels / 100); // Adjust for sampling
-        return whitePixelRatio > 0.3; // If more than 30% white pixels, likely has watermark
+        var hasWatermark = whitePixelRatio > 0.3; // If more than 30% white pixels, likely has watermark
+        
+        _logger.LogDebug("✅ [WATERMARK_DETECT] Watermark detection completed: {HasWatermark}", hasWatermark);
+        return await Task.FromResult(hasWatermark);
     }
 
     private async Task<bool> HasSufficientContentAsync(Bitmap bitmap)
     {
+        _logger.LogDebug("🔍 [CONTENT_CHECK] Checking for sufficient content");
+        
         // Check if image has enough non-white content
         var nonWhitePixels = 0;
         var totalPixels = bitmap.Width * bitmap.Height;
@@ -401,11 +427,16 @@ public class SignatureProcessingService : ISignatureProcessingService
         }
         
         var contentRatio = (double)nonWhitePixels / (totalPixels / 25); // Adjust for sampling
-        return contentRatio > 0.1; // At least 10% non-white content
+        var hasSufficientContent = contentRatio > 0.1; // At least 10% non-white content
+        
+        _logger.LogDebug("✅ [CONTENT_CHECK] Content check completed: {HasSufficientContent}", hasSufficientContent);
+        return await Task.FromResult(hasSufficientContent);
     }
 
     private async Task<double> CalculateQualityScoreAsync(Bitmap bitmap)
     {
+        _logger.LogDebug("📊 [QUALITY_SCORE] Calculating quality score");
+        
         // Simple quality score based on image characteristics
         var score = 0.0;
         
@@ -420,7 +451,9 @@ public class SignatureProcessingService : ISignatureProcessingService
         // Format score (PNG preferred)
         score += 0.3; // Assume good format
         
-        return Math.Min(1.0, score);
+        var finalScore = Math.Min(1.0, score);
+        _logger.LogDebug("✅ [QUALITY_SCORE] Quality score calculated: {Score}", finalScore);
+        return await Task.FromResult(finalScore);
     }
 
     private ImageFormat GetImageFormat(string format)

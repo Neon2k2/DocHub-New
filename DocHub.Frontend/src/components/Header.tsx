@@ -7,6 +7,7 @@ import { UserRole } from './Login';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../utils/responsive';
+import { NotificationDropdown } from './NotificationDropdown';
 
 interface HeaderProps {
   activeModule: 'er' | 'billing';
@@ -103,14 +104,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
           </Button>
 
           {/* Notifications */}
-          <div className="relative">
-            <Button variant="ghost" size="sm" className="hover:text-blue-600">
-              <Bell className="h-4 w-4" />
-            </Button>
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 bg-pink-500 border-0 text-xs flex items-center justify-center">
-              3
-            </Badge>
-          </div>
+          <NotificationDropdown />
 
           {/* Profile Dropdown */}
           <DropdownMenu>

@@ -14,7 +14,7 @@
         __APP_NAME__: JSON.stringify(env.VITE_APP_NAME || 'DocHub'),
         __APP_VERSION__: JSON.stringify(env.VITE_APP_VERSION || '1.0.0'),
       },
-    resolve: {
+      resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {
         'vaul@1.1.2': 'vaul',
@@ -53,14 +53,14 @@
         '@radix-ui/react-accordion@1.2.3': '@radix-ui/react-accordion',
         '@': path.resolve(__dirname, './src'),
       },
-    },
-    build: {
+      },
+      build: {
       target: 'esnext',
       outDir: 'build',
-    },
-    server: {
+      },
+      server: {
       port: 3000,
       open: true,
-    },
+      },
     };
   });

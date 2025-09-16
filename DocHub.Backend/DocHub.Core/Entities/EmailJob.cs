@@ -12,8 +12,7 @@ public class EmailJob
     [Required]
     public Guid LetterTypeDefinitionId { get; set; }
 
-    [Required]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     public Guid? DocumentId { get; set; }
 
@@ -88,7 +87,7 @@ public class EmailJob
     public virtual LetterTypeDefinition LetterTypeDefinition { get; set; } = null!;
 
     [ForeignKey("ExcelUploadId")]
-    public virtual ExcelUpload ExcelUpload { get; set; } = null!;
+    public virtual ExcelUpload? ExcelUpload { get; set; }
 
     [ForeignKey("DocumentId")]
     public virtual GeneratedDocument? Document { get; set; }

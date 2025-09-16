@@ -625,14 +625,14 @@ public class ExcelProcessingService : IExcelProcessingService
             var usedRange = worksheet.UsedRange;
             if (usedRange == null || usedRange.Rows.Count() == 0)
             {
-                return new ExcelDataDto
+                return await Task.FromResult(new ExcelDataDto
                 {
                     UploadId = Guid.Empty,
                     Rows = rows,
                     Headers = headers,
                     TotalRows = 0,
                     IsValid = true
-                };
+                });
             }
 
             // Read headers from first row
@@ -694,14 +694,14 @@ public class ExcelProcessingService : IExcelProcessingService
             workbook.Close();
             excelEngine.Dispose();
 
-            return new ExcelDataDto
+            return await Task.FromResult(new ExcelDataDto
             {
                 UploadId = Guid.Empty, // Will be set by caller
                 Rows = rows,
                 Headers = headers,
                 TotalRows = rows.Count,
                 IsValid = true
-            };
+            });
         }
         catch (Exception ex)
         {

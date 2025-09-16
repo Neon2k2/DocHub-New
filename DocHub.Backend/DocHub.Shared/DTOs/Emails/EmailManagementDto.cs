@@ -8,8 +8,7 @@ public class SendEmailRequest
     [Required]
     public Guid LetterTypeDefinitionId { get; set; }
 
-    [Required]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     public Guid? DocumentId { get; set; }
 
@@ -74,7 +73,7 @@ public class EmailJobDto
     public string LetterTypeName { get; set; } = string.Empty;
 
     [JsonPropertyName("tabDataRecordId")]
-    public Guid ExcelUploadId { get; set; }
+    public Guid? ExcelUploadId { get; set; }
 
     [JsonPropertyName("documentId")]
     public Guid? DocumentId { get; set; }
@@ -148,6 +147,8 @@ public class EmailStatusUpdate
     public DateTime Timestamp { get; set; }
     public string? Reason { get; set; }
     public string? SendGridMessageId { get; set; }
+    public string? EmployeeName { get; set; }
+    public string? EmployeeEmail { get; set; }
 }
 
 public class ValidateEmailRequest

@@ -146,7 +146,7 @@ public class UserManagementService : IUserManagementService
                 FirstName = request.FirstName,
                 LastName = request.LastName,
                 PhoneNumber = request.PhoneNumber,
-                Department = request.Department,
+                Department = request.Department ?? string.Empty,
                 EmployeeId = request.EmployeeId,
                 JobTitle = request.JobTitle,
                 Address = request.Address,
@@ -445,7 +445,7 @@ public class UserManagementService : IUserManagementService
 
             user.PasswordHash = HashPassword(request.NewPassword);
             user.PasswordChangedAt = DateTime.UtcNow;
-            user.Notes = user.Notes.Replace($"RESET_TOKEN:{request.Token}:{tokenParts[2]}", "");
+            user.Notes = user.Notes?.Replace($"RESET_TOKEN:{request.Token}:{tokenParts[2]}", "") ?? string.Empty;
             user.UpdatedAt = DateTime.UtcNow;
 
             await _userRepository.UpdateAsync(user);
