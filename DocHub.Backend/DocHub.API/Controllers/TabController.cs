@@ -63,6 +63,14 @@ public class TabController : ControllerBase
                 return BadRequest(ApiResponse<object>.ErrorResult("Invalid tab ID"));
             }
 
+            // Check department access
+            var currentUserId = GetCurrentUserId();
+            var hasAccess = await _departmentAccessService.HasAccessToTabAsync(Guid.Parse(currentUserId), tabGuid);
+            if (!hasAccess)
+            {
+                return Forbid();
+            }
+
             var cacheKey = $"tab_insights_{tabId}";
             var cached = _cacheService.Get<object>(cacheKey);
             if (cached != null)
@@ -71,34 +79,43 @@ public class TabController : ControllerBase
                 return Ok(ApiResponse<object>.SuccessResult(cached));
             }
 
-            // Total employees from latest Excel upload for this tab if available
+            // Total employees - use a simple approach that works reliably
             int totalEmployees = 0;
             try
             {
-                var uploads = await _excelProcessingService.GetExcelUploadsAsync(tabGuid);
-                var latest = uploads?.OrderByDescending(u => u.UploadedAt).FirstOrDefault();
-                if (latest != null)
+                // For now, use email job count as a reliable proxy
+                // This will show the number of unique employees who have been sent emails
+                totalEmployees = await _dbContext.EmailJobs
+                    .Where(e => e.LetterTypeDefinitionId == tabGuid)
+                    .Select(e => e.RecipientEmail)
+                    .Distinct()
+                    .CountAsync();
+                
+                // If no email jobs yet, we can't determine total employees from Excel easily
+                // This is a limitation we'll accept for now
+                if (totalEmployees == 0)
                 {
-                    var excelPreview = await _excelProcessingService.PreviewExcelAsync(latest.Id, 10000);
-                    // Preview returns a stream; alternatively use GetExcelHeadersAsync + AnalyzeExcelDataAsync if available
-                    // Fallback: use metadata total count if available
-                    var metadata = await _excelProcessingService.GetExcelMetadataAsync(latest.Id);
-                    if (metadata != null && metadata.TryGetValue("TotalRows", out var totalRowsObj) && int.TryParse(totalRowsObj?.ToString(), out var totalRows))
-                    {
-                        totalEmployees = totalRows;
-                    }
+                    _logger.LogInformation("[INSIGHTS] No email jobs found for tab {TabId}, totalEmployees will be 0", tabId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[INSIGHTS] Failed to derive total employees from Excel for tab {TabId}", tabId);
+                _logger.LogWarning(ex, "[INSIGHTS] Failed to derive total employees for tab {TabId}", tabId);
+                totalEmployees = 0;
             }
 
-            // Email jobs for this tab
-            var jobs = await _dbContext.EmailJobs.Where(e => e.LetterTypeDefinitionId == tabGuid).ToListAsync();
-            var totalMailSent = jobs.Count(e => e.Status == "sent" || e.Status == "delivered");
-            var pending = jobs.Count(e => e.Status != "sent" && e.Status != "delivered");
-            var notDelivered = jobs.Count(e => e.Status == "bounced" || e.Status == "dropped" || e.Status == "failed");
+            // Email jobs for this tab - use efficient queries instead of loading all data
+            var totalMailSent = await _dbContext.EmailJobs
+                .Where(e => e.LetterTypeDefinitionId == tabGuid && (e.Status == "sent" || e.Status == "delivered"))
+                .CountAsync();
+            
+            var pending = await _dbContext.EmailJobs
+                .Where(e => e.LetterTypeDefinitionId == tabGuid && e.Status != "sent" && e.Status != "delivered")
+                .CountAsync();
+            
+            var notDelivered = await _dbContext.EmailJobs
+                .Where(e => e.LetterTypeDefinitionId == tabGuid && (e.Status == "bounced" || e.Status == "dropped" || e.Status == "failed"))
+                .CountAsync();
 
             var result = new { totalEmployees, totalMailSent, pending, notDelivered };
             _cacheService.Set(cacheKey, result, TimeSpan.FromMinutes(2));
@@ -749,6 +766,19 @@ public class TabController : ControllerBase
         {
             _logger.LogInformation("Getting email history for tab: {TabId}, page: {Page}, pageSize: {PageSize}", tabId, page, pageSize);
 
+            // Check department access
+            if (!Guid.TryParse(tabId, out var tabGuid))
+            {
+                return BadRequest(ApiResponse<IEnumerable<EmailJobDto>>.ErrorResult("Invalid tab ID"));
+            }
+
+            var currentUserId = GetCurrentUserId();
+            var hasAccess = await _departmentAccessService.HasAccessToTabAsync(Guid.Parse(currentUserId), tabGuid);
+            if (!hasAccess)
+            {
+                return Forbid();
+            }
+
             // Create cache key
             var cacheKey = $"email_history_{tabId}_{page}_{pageSize}";
             
@@ -879,6 +909,21 @@ public class TabController : ControllerBase
         {
             _logger.LogError(ex, "Error getting email history for tab: {TabId}", tabId);
             return StatusCode(500, new ApiResponse<IEnumerable<EmailJobDto>> { Success = false, Message = "Error getting email history" });
+        }
+    }
+
+    [HttpPost("{tabId}/invalidate-history-cache")]
+    public ActionResult<ApiResponse<string>> InvalidateEmailHistoryCache(string tabId)
+    {
+        try
+        {
+            _cacheService.RemovePattern($"email_history_{tabId}_");
+            return Ok(ApiResponse<string>.SuccessResult("Email history cache invalidated"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to invalidate email history cache for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<string>.ErrorResult("Failed to invalidate cache"));
         }
     }
 
@@ -1545,7 +1590,7 @@ public class TabController : ControllerBase
                 LetterTypeDefinitionId = Guid.Parse(tabId),
                 ExcelUploadId = null, // Not used for dynamic tabs
                 Subject = request.Subject,
-                Content = request.Content,
+                Content = request.Content ?? string.Empty,
                 RecipientEmail = employee.Email,
                 RecipientName = employee.Name,
                 Status = "pending",
@@ -1616,7 +1661,7 @@ public class TabController : ControllerBase
                 try
                 {
                     backgroundLogger.LogInformation("🚀 [BACKGROUND-TASK] Starting background email task for job {EmailJobId}", emailJob.Id);
-                    var sendGridMessageId = await SendEmailDirectlyAsync(request.Subject, request.Content, employee.Email, employee.Name, attachmentsJson, request.Cc);
+                    var sendGridMessageId = await SendEmailDirectlyAsync(request.Subject, request.Content ?? string.Empty, employee.Email, employee.Name, attachmentsJson, request.Cc);
                     
                     // Update email job status to sent
                     emailJob.Status = "sent";
@@ -1672,7 +1717,7 @@ public class TabController : ControllerBase
                 LetterTypeName = tab.DisplayName,
                 ExcelUploadId = emailJob.ExcelUploadId,
                 Subject = emailJob.Subject,
-                Content = emailJob.Content,
+                Content = emailJob.Content ?? string.Empty,
                 Attachments = attachmentsJson,
                 Status = emailJob.Status,
                 SentBy = emailJob.SentBy,

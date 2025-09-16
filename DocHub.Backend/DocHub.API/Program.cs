@@ -20,6 +20,7 @@ builder.Services.AddSwaggerGen();
 
 // Add memory cache
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICacheService, CacheService>();
 
 // Database
 builder.Services.AddDbContext<DocHubDbContext>(options =>

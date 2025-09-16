@@ -4,7 +4,7 @@ import { AdminSettings } from '../components/admin/AdminSettings';
 import { TabManagement } from '../components/admin/TabManagement';
 import { TabPersistenceManager } from '../components/admin/TabPersistenceManager';
 import UserManagement from '../components/admin/UserManagement';
-import SessionManagement from '../components/admin/SessionManagement';
+import { SessionManagement } from '../components/admin/SessionManagement';
 import { WelcomeDashboard } from '../components/WelcomeDashboard';
 import { PlaceholderPage } from '../components/shared/PlaceholderPage';
 import { UnauthorizedPage } from '../components/shared/UnauthorizedPage';

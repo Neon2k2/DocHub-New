@@ -37,7 +37,6 @@ export function TabManagement() {
   const [tabs, setTabs] = useState<DynamicTab[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [editingTab, setEditingTab] = useState<DynamicTab | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Multi-step dialog state
@@ -64,12 +63,6 @@ export function TabManagement() {
     order: 0
   });
 
-  // Data table state
-  const [showDataDialog, setShowDataDialog] = useState(false);
-  const [selectedTab, setSelectedTab] = useState<DynamicTab | null>(null);
-  const [tableData, setTableData] = useState<any[]>([]);
-  const [tableHeaders, setTableHeaders] = useState<string[]>([]);
-  const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
     loadTabs();
@@ -276,18 +269,6 @@ export function TabManagement() {
     );
   };
 
-  const handleEditTab = (tab: DynamicTab) => {
-    setEditingTab(tab);
-    setFormData({
-      typeKey: tab.letterType,
-      displayName: tab.name,
-      description: tab.description,
-      isActive: tab.isActive,
-      module: 'ER'
-    });
-    setCurrentStep(1);
-    setShowCreateDialog(true);
-  };
 
   const handleDuplicateTab = async (tab: DynamicTab) => {
     try {
@@ -367,64 +348,6 @@ export function TabManagement() {
     }
   };
 
-  const handleUpdateTab = async () => {
-    if (!editingTab) return;
-    
-    if (!formData.typeKey || !formData.displayName) {
-      notify.error('Please fill in all required fields');
-      return;
-    }
-    
-    try {
-      // Create field configuration JSON
-      const fieldConfiguration = {
-        fields: fields.map(field => ({
-          fieldKey: field.fieldKey,
-          fieldName: field.fieldName,
-          displayName: field.displayName,
-          fieldType: 'Text', // Always Text type for simplicity
-          isRequired: field.isRequired,
-          validationRules: field.validationRules,
-          defaultValue: field.defaultValue,
-          order: field.order
-        }))
-      };
-
-      const updateData = {
-        typeKey: formData.typeKey,
-        displayName: formData.displayName,
-        description: formData.description,
-        dataSourceType: dataSource,
-        fieldConfiguration: JSON.stringify(fieldConfiguration),
-        isActive: formData.isActive
-      };
-      
-      const response = await apiService.updateLetterTypeDefinition(editingTab.id, updateData);
-      
-      if (response.success && response.data) {
-        const updatedTab: DynamicTab = {
-          id: response.data.id,
-          name: response.data.displayName,
-          description: response.data.description || '',
-          letterType: response.data.typeKey,
-          isActive: response.data.isActive,
-          createdAt: new Date(response.data.createdAt),
-          updatedAt: new Date(response.data.updatedAt),
-          metadata: response.data.fieldConfiguration || '{}'
-        };
-        
-        setTabs(tabs.map(tab => tab.id === editingTab.id ? updatedTab : tab));
-        setShowCreateDialog(false);
-        setEditingTab(null);
-        resetForm();
-        notify.success('Tab updated successfully');
-      } else {
-        throw new Error(response.error?.message || 'Failed to update letter type');
-      }
-    } catch (error) {
-      handleError(error, 'Update tab');
-    }
-  };
 
   const resetForm = () => {
     setFormData({
@@ -448,49 +371,7 @@ export function TabManagement() {
   };
 
 
-  const handleViewData = async (tab: DynamicTab) => {
-    setSelectedTab(tab);
-    setShowDataDialog(true);
-    setDataLoading(true);
 
-    try {
-      // Parse metadata to get data source type
-      const metadata = typeof tab.metadata === 'string' 
-        ? JSON.parse(tab.metadata) 
-        : tab.metadata;
-
-      if (metadata.dataSourceType === 'excel') {
-        setTableHeaders(['Data Source Type']);
-        setTableData([{ 
-          'Data Source Type': 'Excel Upload - Upload functionality available in the tab interface' 
-        }]);
-      } else if (metadata.dataSourceType === 'database') {
-        setTableHeaders(['Data Source Type']);
-        setTableData([{ 
-          'Data Source Type': 'Database Connection - Database connection available in the tab interface' 
-        }]);
-      } else {
-        setTableHeaders(['Status']);
-        setTableData([{ 'Status': 'No data source type configured' }]);
-      }
-    } catch (error) {
-      console.error('Error parsing tab metadata:', error);
-      setTableHeaders(['Error']);
-      setTableData([{ 'Error': 'Failed to parse tab configuration' }]);
-    } finally {
-      setDataLoading(false);
-    }
-  };
-
-  const startEditing = (tab: DynamicTab) => {
-    setEditingTab(tab);
-    setFormData({
-      name: tab.name,
-      description: tab.description,
-      letterType: tab.letterType,
-      isActive: tab.isActive
-    });
-  };
 
   const formatDate = (date: Date | string) => {
     const dateObj = typeof date === 'string' ? new Date(date) : date;
@@ -576,7 +457,7 @@ export function TabManagement() {
             <DialogContent className="dialog-panel max-w-4xl max-h-[70vh] overflow-hidden">
               <DialogHeader>
                 <DialogTitle className="flex items-center justify-between">
-                  <span>{editingTab ? 'Edit Tab' : 'Create New Tab'}</span>
+                  <span>Create New Tab</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -586,7 +467,7 @@ export function TabManagement() {
                   </Button>
                 </DialogTitle>
                 <DialogDescription>
-                  {editingTab ? 'Update the tab configuration' : 'Create a new letter type tab with custom fields'}
+                  Create a new letter type tab with custom fields
                 </DialogDescription>
               </DialogHeader>
               
@@ -867,17 +748,17 @@ export function TabManagement() {
                     </Button>
                   ) : (
                     <Button 
-                      onClick={editingTab ? handleUpdateTab : handleCreateTab}
+                      onClick={handleCreateTab}
                       disabled={isSubmitting}
                       className="neon-glow"
                     >
                       {isSubmitting ? (
                         <>
                           <Loading className="h-4 w-4 mr-2" />
-                          {editingTab ? 'Updating...' : 'Creating...'}
+                          Creating...
                         </>
                       ) : (
-                        editingTab ? 'Update Tab' : 'Create Tab'
+                        'Create Tab'
                       )}
                     </Button>
                   )}
@@ -993,26 +874,6 @@ export function TabManagement() {
               </div>
               
               <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => handleViewData(tab)}
-                  className="flex-1"
-                >
-                  <Table className="h-3 w-3 mr-2" />
-                  View Data
-                </Button>
-                
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => handleEditTab(tab)}
-                  className="flex-1"
-                >
-                  <Edit2 className="h-3 w-3 mr-2" />
-                  Edit
-                </Button>
-                
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="outline">
@@ -1062,72 +923,6 @@ export function TabManagement() {
         </Card>
       )}
 
-      {/* Data Table Dialog */}
-      <Dialog open={showDataDialog} onOpenChange={setShowDataDialog}>
-        <DialogContent className="max-w-6xl max-h-[70vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Table className="h-5 w-5" />
-              {selectedTab?.name} - Data View
-            </DialogTitle>
-            <DialogDescription>
-              {selectedTab?.description}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="flex-1 overflow-auto">
-            {dataLoading ? (
-              <div className="flex items-center justify-center h-32">
-                <Loading />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {tableHeaders.length > 0 ? (
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-muted">
-                          <tr>
-                            {tableHeaders.map((header, index) => (
-                              <th key={index} className="px-4 py-3 text-left font-medium text-sm">
-                                {header}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tableData.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="border-b hover:bg-muted/50">
-                              {tableHeaders.map((header, colIndex) => (
-                                <td key={colIndex} className="px-4 py-3 text-sm">
-                                  {row[header] || ''}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="px-4 py-2 bg-muted/50 text-sm text-muted-foreground">
-                      Showing {tableData.length} rows
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No data available
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={() => setShowDataDialog(false)}>
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
     </div>
   );

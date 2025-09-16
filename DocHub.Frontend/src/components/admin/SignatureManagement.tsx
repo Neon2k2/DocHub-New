@@ -16,7 +16,6 @@ export function SignatureManagement() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const [editingSignature, setEditingSignature] = useState<Signature | null>(null);
   const [uploadForm, setUploadForm] = useState({
     name: '',
     file: null as File | null
@@ -76,38 +75,7 @@ export function SignatureManagement() {
     );
   };
 
-  const handleEditSignature = (signature: Signature) => {
-    setEditingSignature(signature);
-    setUploadForm({ name: signature.name, file: null });
-    setShowUploadDialog(true);
-  };
 
-  const handleUpdateSignature = async () => {
-    if (!editingSignature || !uploadForm.name) {
-      notify.error('Please provide a signature name');
-      return;
-    }
-
-    setUploading(true);
-    try {
-      // In a real implementation, you would call an API to update the signature
-      const updatedSignature: Signature = {
-        ...editingSignature,
-        name: uploadForm.name,
-        // If a new file is provided, it would be uploaded separately
-      };
-
-      setSignatures(prev => prev.map(s => s.id === editingSignature.id ? updatedSignature : s));
-      setUploadForm({ name: '', file: null });
-      setEditingSignature(null);
-      setShowUploadDialog(false);
-      notify.success('Signature updated successfully');
-    } catch (error) {
-      handleError(error, 'Update signature');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const handleDownloadSignature = (signature: Signature) => {
     try {
@@ -152,10 +120,10 @@ export function SignatureManagement() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {editingSignature ? 'Edit Signature' : 'Upload New Signature'}
+                Upload New Signature
               </DialogTitle>
               <DialogDescription>
-                {editingSignature ? 'Update signature information' : 'Add a new digital signature to the system'}
+                Add a new digital signature to the system
               </DialogDescription>
             </DialogHeader>
             
@@ -171,26 +139,24 @@ export function SignatureManagement() {
                 />
               </div>
               
-              {!editingSignature && (
-                <div className="space-y-2">
-                  <Label htmlFor="signature-file">Signature File</Label>
-                  <Input
-                    id="signature-file"
-                    type="file"
-                    accept="image/*,.png,.jpg,.jpeg"
-                    onChange={(e) => setUploadForm(prev => ({ ...prev, file: e.target.files?.[0] || null }))}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Supported formats: PNG, JPG, JPEG (max 2MB)
-                  </p>
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="signature-file">Signature File</Label>
+                <Input
+                  id="signature-file"
+                  type="file"
+                  accept="image/*,.png,.jpg,.jpeg"
+                  onChange={(e) => setUploadForm(prev => ({ ...prev, file: e.target.files?.[0] || null }))}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Supported formats: PNG, JPG, JPEG (max 2MB)
+                </p>
+              </div>
               
               <div className="flex gap-3 pt-4">
                 <Button 
-                  onClick={editingSignature ? handleUpdateSignature : handleUploadSignature}
-                  disabled={uploading || !uploadForm.name || (!editingSignature && !uploadForm.file)}
+                  onClick={handleUploadSignature}
+                  disabled={uploading || !uploadForm.name || !uploadForm.file}
                   className="flex-1"
                 >
                   {uploading ? (
@@ -198,7 +164,7 @@ export function SignatureManagement() {
                   ) : (
                     <Upload className="h-4 w-4 mr-2" />
                   )}
-                  {uploading ? 'Processing...' : (editingSignature ? 'Update' : 'Upload')}
+                  {uploading ? 'Processing...' : 'Upload'}
                 </Button>
                 <Button 
                   variant="outline" 
@@ -332,13 +298,6 @@ export function SignatureManagement() {
                           Download
                         </Button>
                         
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleEditSignature(signature)}
-                        >
-                          <Edit className="h-3 w-3" />
-                        </Button>
                         
                         <Button
                           size="sm"

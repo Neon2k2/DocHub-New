@@ -515,8 +515,13 @@ class ApiService {
     };
 
     const makeRequest = async (): Promise<T> => {
-      // Add timeout for email sending requests - increased for PDF generation
-      const timeoutMs = endpoint.includes('/send-email') ? 300000 : 60000; // 5min for email, 60s for others
+      // Add timeout for different request types
+      let timeoutMs = 60000; // Default 60s
+      if (endpoint.includes('/send-email')) {
+        timeoutMs = 300000; // 5min for email sending
+      } else if (endpoint.includes('/insights')) {
+        timeoutMs = 30000; // 30s for insights (needs to fetch Excel data)
+      }
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -1115,8 +1120,17 @@ class ApiService {
   async getTabEmailHistory(tabId: string, page: number = 1, pageSize: number = 10): Promise<ApiResponse<EmailJob[]>> {
     const cacheKey = `email_history_${tabId}_${page}_${pageSize}`;
     const fetcher = () => this.request<ApiResponse<EmailJob[]>>(`/Tab/${tabId}/email-history?page=${page}&pageSize=${pageSize}`);
-    // SWR: serve stale immediately, revalidate in background
-    return cacheService.getOrFetch<ApiResponse<EmailJob[]>>(cacheKey, fetcher, { revalidate: true });
+    // SWR: serve stale immediately, revalidate in background, with tuned TTLs
+    return cacheService.getOrFetch<ApiResponse<EmailJob[]>>(cacheKey, fetcher, { revalidate: true, ttl: 60_000, staleTtl: 5 * 60_000 });
+  }
+
+  async invalidateEmailHistoryCache(tabId: string): Promise<void> {
+    // Fire-and-forget cache invalidation endpoint on API
+    try {
+      await this.request(`/Tab/${tabId}/invalidate-history-cache`, { method: 'POST' });
+    } catch (_) {}
+    // Also clear frontend cache pattern
+    cacheService.invalidatePattern(`email_history_${tabId}_`);
   }
 
   // Email Template Management
@@ -1832,8 +1846,93 @@ class ApiService {
   }
 
   // User Management APIs
-  async getUsers(): Promise<ApiResponse<UserDto[]>> {
-    return this.request<ApiResponse<UserDto[]>>('/api/usermanagement/users');
+  async getUsers(request?: { page?: number; pageSize?: number; searchTerm?: string; department?: string }): Promise<ApiResponse<PaginatedResponse<UserDto>>> {
+    const params = new URLSearchParams();
+    if (request?.page) params.append('page', request.page.toString());
+    if (request?.pageSize) params.append('pageSize', request.pageSize.toString());
+    if (request?.searchTerm) params.append('searchTerm', request.searchTerm);
+    if (request?.department) params.append('department', request.department);
+    
+    const queryString = params.toString();
+    return this.request<ApiResponse<PaginatedResponse<UserDto>>>(`/UserManagement${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getUser(id: string): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>(`/UserManagement/${id}`);
+  }
+
+  async createUser(request: CreateUserRequest): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>('/UserManagement', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateUser(id: string, request: UpdateUserRequest): Promise<ApiResponse<UserDto>> {
+    return this.request<ApiResponse<UserDto>>(`/UserManagement/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteUser(id: string): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>(`/UserManagement/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async toggleUserStatus(id: string): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>(`/UserManagement/${id}/toggle-status`, {
+      method: 'POST',
+    });
+  }
+
+  async resetUserPassword(id: string, newPassword: string): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>(`/UserManagement/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword, sendEmailNotification: true }),
+    });
+  }
+
+  async getDepartments(): Promise<ApiResponse<string[]>> {
+    return this.request<ApiResponse<string[]>>('/UserManagement/departments');
+  }
+
+  // Session Management APIs
+  async getActiveSessions(): Promise<ApiResponse<ActiveSession[]>> {
+    return this.request<ApiResponse<ActiveSession[]>>('/SessionManagement/active-sessions');
+  }
+
+  async getSessionStats(): Promise<ApiResponse<SessionStats>> {
+    return this.request<ApiResponse<SessionStats>>('/SessionManagement/session-stats');
+  }
+
+  async getUserLoginHistory(userId: string, page: number = 1, pageSize: number = 20): Promise<ApiResponse<LoginHistory[]>> {
+    return this.request<ApiResponse<LoginHistory[]>>(`/SessionManagement/login-history/${userId}?page=${page}&pageSize=${pageSize}`);
+  }
+
+  async terminateSession(sessionId: string): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>(`/SessionManagement/terminate-session/${sessionId}`, {
+      method: 'POST',
+    });
+  }
+
+  async terminateUserSessions(userId: string): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>(`/SessionManagement/terminate-user-sessions/${userId}`, {
+      method: 'POST',
+    });
+  }
+
+  async terminateMyOtherSessions(): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>('/SessionManagement/terminate-my-other-sessions', {
+      method: 'POST',
+    });
+  }
+
+  async cleanupExpiredSessions(): Promise<ApiResponse<string>> {
+    return this.request<ApiResponse<string>>('/SessionManagement/cleanup-expired-sessions', {
+      method: 'POST',
+    });
   }
 
   async getUserById(id: string): Promise<ApiResponse<UserDto>> {
@@ -2711,4 +2810,55 @@ export interface SaveEmailTemplateRequest {
 
 // Export singleton instance
 export const apiService = new ApiService();
+
+// Session Management Types
+export interface ActiveSession {
+  sessionId: string;
+  userId: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  department: string;
+  ipAddress: string;
+  userAgent: string;
+  loginAt: string;
+  lastActivityAt: string;
+  isActive: boolean;
+  deviceInfo: string;
+  location: string;
+}
+
+export interface SessionStats {
+  totalActiveSessions: number;
+  totalSessionsToday: number;
+  totalSessionsThisWeek: number;
+  totalSessionsThisMonth: number;
+  averageSessionDuration: string;
+  longestActiveSession: string;
+  sessionsByDepartment: Record<string, number>;
+  sessionsByHour: Record<string, number>;
+  uniqueUsersToday: number;
+  uniqueUsersThisWeek: number;
+  uniqueUsersThisMonth: number;
+}
+
+export interface LoginHistory {
+  id: string;
+  userId: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  department: string;
+  ipAddress: string;
+  userAgent: string;
+  loginAt: string;
+  logoutAt?: string;
+  isSuccessful: boolean;
+  failureReason?: string;
+  deviceInfo: string;
+  location: string;
+  sessionDuration?: string;
+}
 export default apiService;

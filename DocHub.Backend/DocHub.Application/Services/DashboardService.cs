@@ -141,7 +141,7 @@ public class DashboardService : IDashboardService
             var documentRequests = documents.Select(gd => new DocumentRequestDto
             {
                 Id = gd.Id.ToString(),
-                EmployeeId = gd.ExcelUploadId.ToString(),
+                EmployeeId = gd.ExcelUploadId?.ToString() ?? string.Empty,
                 EmployeeName = gd.GeneratedByUser.FirstName + " " + gd.GeneratedByUser.LastName,
                 DocumentType = gd.LetterTypeDefinition.DisplayName,
                 Status = GetDocumentStatus(gd),

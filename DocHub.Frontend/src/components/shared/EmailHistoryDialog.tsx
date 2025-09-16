@@ -119,7 +119,12 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
     
     setLoading(true);
     try {
-      const response = await apiService.getTabEmailHistory(tabId, currentPage, pageSize);
+      // Prefetch next page in background to speed UX
+      const responsePromise = apiService.getTabEmailHistory(tabId, currentPage, pageSize);
+      if (currentPage === 1) {
+        apiService.getTabEmailHistory(tabId, 2, pageSize).catch(() => {});
+      }
+      const response = await responsePromise;
       console.log('📊 [EMAIL_HISTORY] API response:', response);
       
       if (response.success && response.data) {
@@ -130,12 +135,10 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
         setTotalPages(totalPages);
         console.log('📄 [EMAIL_HISTORY] Set total pages to:', totalPages);
         
-        // Cache for 5 minutes (increased from 1 minute)
-        cacheService.set(cacheKey, { emailJobs: response.data, totalPages }, 5 * 60 * 1000);
-        
-        // If this is page 1, also cache as "all data" for faster subsequent loads
+        // Cache for 1 minute fresh, 5 minutes stale window
+        cacheService.set(cacheKey, { emailJobs: response.data, totalPages }, 60 * 1000, 5 * 60 * 1000);
         if (currentPage === 1) {
-          cacheService.set(allDataCacheKey, { emailJobs: response.data, totalPages }, 5 * 60 * 1000);
+          cacheService.set(allDataCacheKey, { emailJobs: response.data, totalPages }, 60 * 1000, 5 * 60 * 1000);
         }
       } else {
         console.log('⚠️ [EMAIL_HISTORY] No data received from API');

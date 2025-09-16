@@ -41,7 +41,10 @@ public class User
     public string? PhoneNumber { get; set; }
 
     [MaxLength(100)]
-    public string Department { get; set; } = string.Empty; // ER or Billing
+    public string Department { get; set; } = "ER"; // ER or Billing
+
+    [MaxLength(100)]
+    public string Section { get; set; } = "ER"; // ER or Billing (for future use)
 
     [MaxLength(50)]
     public string? EmployeeId { get; set; }

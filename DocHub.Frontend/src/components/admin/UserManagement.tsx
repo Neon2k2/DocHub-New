@@ -41,20 +41,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersResponse, rolesResponse, permissionsResponse] = await Promise.all([
-        apiService.getUsers(),
-        apiService.getRoles(),
-        apiService.getPermissions()
+      const [usersResponse, rolesResponse] = await Promise.all([
+        apiService.getUsers({ page: 1, pageSize: 100 }),
+        apiService.getRoles()
       ]);
 
       if (usersResponse.success) {
-        setUsers(usersResponse.data || []);
+        setUsers(usersResponse.data?.items || []);
       }
       if (rolesResponse.success) {
         setRoles(rolesResponse.data || []);
-      }
-      if (permissionsResponse.success) {
-        setPermissions(permissionsResponse.data || []);
       }
     } catch (err) {
       setError('Failed to load data');

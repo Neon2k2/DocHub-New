@@ -1,7 +1,7 @@
-using DocHub.Core.Interfaces;
+using Microsoft.AspNetCore.Mvc;
+using DocHub.Application.Services;
 using DocHub.Shared.DTOs.Common;
 using DocHub.Shared.DTOs.Users;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 
@@ -13,100 +13,139 @@ namespace DocHub.API.Controllers;
 public class SessionManagementController : ControllerBase
 {
     private readonly ISessionManagementService _sessionManagementService;
+    private readonly IUserManagementService _userManagementService;
     private readonly ILogger<SessionManagementController> _logger;
 
-    public SessionManagementController(ISessionManagementService sessionManagementService, ILogger<SessionManagementController> logger)
+    public SessionManagementController(
+        ISessionManagementService sessionManagementService,
+        IUserManagementService userManagementService,
+        ILogger<SessionManagementController> logger)
     {
         _sessionManagementService = sessionManagementService;
+        _userManagementService = userManagementService;
         _logger = logger;
     }
 
-    [HttpGet]
+    [HttpGet("active-sessions")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<PaginatedResponse<UserSessionDto>>>> GetSessions([FromQuery] GetSessionsRequest request)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetSessionsAsync(request);
-            return Ok(ApiResponse<PaginatedResponse<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sessions");
-            return StatusCode(500, ApiResponse<PaginatedResponse<UserSessionDto>>.ErrorResult("An error occurred while getting sessions"));
-        }
-    }
-
-    [HttpGet("{sessionId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<UserSessionDto>>> GetSession(Guid sessionId)
-    {
-        try
-        {
-            var session = await _sessionManagementService.GetSessionByIdAsync(sessionId);
-            if (session == null)
-            {
-                return NotFound(ApiResponse<UserSessionDto>.ErrorResult("Session not found"));
-            }
-
-            return Ok(ApiResponse<UserSessionDto>.SuccessResult(session));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting session: {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse<UserSessionDto>.ErrorResult("An error occurred while getting session"));
-        }
-    }
-
-    [HttpGet("user/{userId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetUserSessions(Guid userId, [FromQuery] bool activeOnly = true)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetUserSessionsAsync(userId, activeOnly);
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting user sessions: {UserId}", userId);
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting user sessions"));
-        }
-    }
-
-    [HttpGet("active")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetActiveSessions()
+    public async Task<ActionResult<ApiResponse<List<ActiveSessionDto>>>> GetActiveSessions()
     {
         try
         {
             var sessions = await _sessionManagementService.GetActiveSessionsAsync();
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
+            return Ok(ApiResponse<List<ActiveSessionDto>>.SuccessResult(sessions));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting active sessions");
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting active sessions"));
+            return StatusCode(500, ApiResponse<List<ActiveSessionDto>>.ErrorResult("An error occurred while getting active sessions"));
         }
     }
 
-    [HttpGet("expired")]
+    [HttpGet("user-sessions/{userId}")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetExpiredSessions()
+    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetUserSessions(Guid userId)
     {
         try
         {
-            var sessions = await _sessionManagementService.GetExpiredSessionsAsync();
+            var sessions = await _sessionManagementService.GetUserSessionsAsync(userId);
             return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting expired sessions");
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting expired sessions"));
+            _logger.LogError(ex, "Error getting user sessions for {UserId}", userId);
+            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting user sessions"));
         }
     }
 
-    [HttpGet("stats")]
+    [HttpGet("my-sessions")]
+    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetMySessions()
+    {
+        try
+        {
+            var currentUserId = GetCurrentUserId();
+            var sessions = await _sessionManagementService.GetUserSessionsAsync(Guid.Parse(currentUserId));
+            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting current user sessions");
+            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting your sessions"));
+        }
+    }
+
+    [HttpPost("terminate-session/{sessionId}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<string>>> TerminateSession(Guid sessionId)
+    {
+        try
+        {
+            var result = await _sessionManagementService.TerminateSessionAsync(sessionId);
+            if (result.Success)
+            {
+                return Ok(ApiResponse<string>.SuccessResult("Session terminated successfully"));
+            }
+
+            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error terminating session {SessionId}", sessionId);
+            return StatusCode(500, ApiResponse<string>.ErrorResult("An error occurred while terminating session"));
+        }
+    }
+
+    [HttpPost("terminate-user-sessions/{userId}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<string>>> TerminateUserSessions(Guid userId)
+    {
+        try
+        {
+            var currentUserId = GetCurrentUserId();
+            if (userId == Guid.Parse(currentUserId))
+            {
+                return BadRequest(ApiResponse<string>.ErrorResult("Cannot terminate your own sessions"));
+            }
+
+            var result = await _sessionManagementService.TerminateUserSessionsAsync(userId);
+            if (result.Success)
+            {
+                return Ok(ApiResponse<string>.SuccessResult("All user sessions terminated successfully"));
+            }
+
+            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error terminating user sessions for {UserId}", userId);
+            return StatusCode(500, ApiResponse<string>.ErrorResult("An error occurred while terminating user sessions"));
+        }
+    }
+
+    [HttpPost("terminate-my-other-sessions")]
+    public async Task<ActionResult<ApiResponse<string>>> TerminateMyOtherSessions()
+    {
+        try
+        {
+            var currentUserId = GetCurrentUserId();
+            var currentSessionId = GetCurrentSessionId();
+            
+            var result = await _sessionManagementService.TerminateUserOtherSessionsAsync(Guid.Parse(currentUserId), currentSessionId);
+            if (result.Success)
+            {
+                return Ok(ApiResponse<string>.SuccessResult("Other sessions terminated successfully"));
+            }
+
+            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error terminating current user's other sessions");
+            return StatusCode(500, ApiResponse<string>.ErrorResult("An error occurred while terminating other sessions"));
+        }
+    }
+
+    [HttpGet("session-stats")]
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<SessionStatsDto>>> GetSessionStats()
     {
@@ -117,326 +156,66 @@ public class SessionManagementController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting session stats");
-            return StatusCode(500, ApiResponse<SessionStatsDto>.ErrorResult("An error occurred while getting session stats"));
+            _logger.LogError(ex, "Error getting session statistics");
+            return StatusCode(500, ApiResponse<SessionStatsDto>.ErrorResult("An error occurred while getting session statistics"));
         }
     }
 
-    [HttpGet("count/active")]
+    [HttpPost("cleanup-expired-sessions")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<int>>> GetActiveSessionCount()
+    public async Task<ActionResult<ApiResponse<string>>> CleanupExpiredSessions()
     {
         try
         {
-            var count = await _sessionManagementService.GetActiveSessionCountAsync();
-            return Ok(ApiResponse<int>.SuccessResult(count));
+            var result = await _sessionManagementService.CleanupExpiredSessionsAsync();
+            return Ok(ApiResponse<string>.SuccessResult($"Cleaned up {result} expired sessions"));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting active session count");
-            return StatusCode(500, ApiResponse<int>.ErrorResult("An error occurred while getting active session count"));
+            _logger.LogError(ex, "Error cleaning up expired sessions");
+            return StatusCode(500, ApiResponse<string>.ErrorResult("An error occurred while cleaning up expired sessions"));
         }
     }
 
-    [HttpGet("count/user/{userId}")]
+    [HttpGet("login-history/{userId}")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<int>>> GetUserActiveSessionCount(Guid userId)
+    public async Task<ActionResult<ApiResponse<List<LoginHistoryDto>>>> GetUserLoginHistory(Guid userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         try
         {
-            var count = await _sessionManagementService.GetUserActiveSessionCountAsync(userId);
-            return Ok(ApiResponse<int>.SuccessResult(count));
+            var history = await _sessionManagementService.GetUserLoginHistoryAsync(userId, page, pageSize);
+            return Ok(ApiResponse<List<LoginHistoryDto>>.SuccessResult(history));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting user active session count: {UserId}", userId);
-            return StatusCode(500, ApiResponse<int>.ErrorResult("An error occurred while getting user active session count"));
+            _logger.LogError(ex, "Error getting login history for user {UserId}", userId);
+            return StatusCode(500, ApiResponse<List<LoginHistoryDto>>.ErrorResult("An error occurred while getting login history"));
         }
     }
 
-    [HttpPost("{sessionId}/terminate")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> TerminateSession(Guid sessionId, [FromBody] TerminateSessionRequest request)
+    [HttpGet("my-login-history")]
+    public async Task<ActionResult<ApiResponse<List<LoginHistoryDto>>>> GetMyLoginHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         try
         {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ApiResponse<bool>.ErrorResult("Invalid request data"));
-            }
-
             var currentUserId = GetCurrentUserId();
-            var result = await _sessionManagementService.TerminateSessionAsync(sessionId, request.Reason ?? "Terminated by admin", currentUserId);
-            
-            if (!result)
-            {
-                return NotFound(ApiResponse<bool>.ErrorResult("Session not found"));
-            }
-
-            return Ok(ApiResponse<bool>.SuccessResult(true));
+            var history = await _sessionManagementService.GetUserLoginHistoryAsync(Guid.Parse(currentUserId), page, pageSize);
+            return Ok(ApiResponse<List<LoginHistoryDto>>.SuccessResult(history));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error terminating session: {SessionId}", sessionId);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while terminating session"));
-        }
-    }
-
-    [HttpPost("user/{userId}/terminate-all")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> TerminateAllUserSessions(Guid userId, [FromBody] TerminateAllSessionsRequest request)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ApiResponse<bool>.ErrorResult("Invalid request data"));
-            }
-
-            var currentUserId = GetCurrentUserId();
-            var result = await _sessionManagementService.TerminateAllUserSessionsAsync(userId, request.Reason ?? "Terminated by admin", currentUserId, request.ExcludeCurrentSession);
-            
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error terminating all user sessions: {UserId}", userId);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while terminating all user sessions"));
-        }
-    }
-
-    [HttpPost("terminate-expired")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> TerminateExpiredSessions()
-    {
-        try
-        {
-            var result = await _sessionManagementService.TerminateExpiredSessionsAsync();
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error terminating expired sessions");
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while terminating expired sessions"));
-        }
-    }
-
-    [HttpPost("cleanup")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> CleanupSessions([FromQuery] int? daysOld = null, [FromQuery] int? hoursInactive = null)
-    {
-        try
-        {
-            bool result = true;
-
-            if (daysOld.HasValue)
-            {
-                result &= await _sessionManagementService.CleanupOldSessionsAsync(daysOld.Value);
-            }
-
-            if (hoursInactive.HasValue)
-            {
-                result &= await _sessionManagementService.CleanupInactiveSessionsAsync(hoursInactive.Value);
-            }
-
-            if (!daysOld.HasValue && !hoursInactive.HasValue)
-            {
-                result = await _sessionManagementService.CleanupExpiredSessionsAsync();
-            }
-
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up sessions");
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while cleaning up sessions"));
-        }
-    }
-
-    [HttpGet("concurrent/{userId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetConcurrentSessions(Guid userId)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetConcurrentSessionsAsync(userId);
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting concurrent sessions: {UserId}", userId);
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting concurrent sessions"));
-        }
-    }
-
-    [HttpPost("enforce-limit/{userId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> EnforceSessionLimit(Guid userId, [FromQuery] int maxSessions = 5)
-    {
-        try
-        {
-            var result = await _sessionManagementService.EnforceSessionLimitAsync(userId, maxSessions);
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error enforcing session limit: {UserId}", userId);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while enforcing session limit"));
-        }
-    }
-
-    [HttpGet("by-ip/{ipAddress}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetSessionsByIpAddress(string ipAddress)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetSessionsByIpAddressAsync(ipAddress);
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sessions by IP address: {IpAddress}", ipAddress);
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting sessions by IP address"));
-        }
-    }
-
-    [HttpGet("by-device/{deviceType}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetSessionsByDeviceType(string deviceType)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetSessionsByDeviceTypeAsync(deviceType);
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sessions by device type: {DeviceType}", deviceType);
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting sessions by device type"));
-        }
-    }
-
-    [HttpGet("by-time-range")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<UserSessionDto>>>> GetSessionsByTimeRange([FromQuery] DateTime startTime, [FromQuery] DateTime endTime)
-    {
-        try
-        {
-            var sessions = await _sessionManagementService.GetSessionsByTimeRangeAsync(startTime, endTime);
-            return Ok(ApiResponse<List<UserSessionDto>>.SuccessResult(sessions));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sessions by time range");
-            return StatusCode(500, ApiResponse<List<UserSessionDto>>.ErrorResult("An error occurred while getting sessions by time range"));
-        }
-    }
-
-    [HttpPost("block-suspicious/{ipAddress}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> BlockSuspiciousSessions(string ipAddress)
-    {
-        try
-        {
-            var result = await _sessionManagementService.BlockSuspiciousSessionsAsync(ipAddress);
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error blocking suspicious sessions: {IpAddress}", ipAddress);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while blocking suspicious sessions"));
-        }
-    }
-
-    [HttpGet("refresh-tokens/{userId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<RefreshTokenDto>>>> GetUserRefreshTokens(Guid userId, [FromQuery] bool activeOnly = true)
-    {
-        try
-        {
-            var tokens = await _sessionManagementService.GetUserRefreshTokensAsync(userId, activeOnly);
-            return Ok(ApiResponse<List<RefreshTokenDto>>.SuccessResult(tokens));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting user refresh tokens: {UserId}", userId);
-            return StatusCode(500, ApiResponse<List<RefreshTokenDto>>.ErrorResult("An error occurred while getting user refresh tokens"));
-        }
-    }
-
-    [HttpPost("refresh-tokens/{tokenId}/revoke")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> RevokeRefreshToken(Guid tokenId, [FromBody] RevokeRefreshTokenRequest request)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ApiResponse<bool>.ErrorResult("Invalid request data"));
-            }
-
-            var currentUserId = GetCurrentUserId();
-            var result = await _sessionManagementService.RevokeRefreshTokenAsync(tokenId, request.Reason ?? "Revoked by admin", currentUserId);
-            
-            if (!result)
-            {
-                return NotFound(ApiResponse<bool>.ErrorResult("Refresh token not found"));
-            }
-
-            return Ok(ApiResponse<bool>.SuccessResult(true));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking refresh token: {TokenId}", tokenId);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while revoking refresh token"));
-        }
-    }
-
-    [HttpPost("refresh-tokens/user/{userId}/revoke-all")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> RevokeAllUserRefreshTokens(Guid userId, [FromBody] RevokeAllRefreshTokensRequest request)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ApiResponse<bool>.ErrorResult("Invalid request data"));
-            }
-
-            var currentUserId = GetCurrentUserId();
-            var result = await _sessionManagementService.RevokeAllUserRefreshTokensAsync(userId, request.Reason ?? "Revoked by admin", currentUserId);
-            
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking all user refresh tokens: {UserId}", userId);
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while revoking all user refresh tokens"));
-        }
-    }
-
-    [HttpPost("refresh-tokens/revoke-expired")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> RevokeExpiredRefreshTokens()
-    {
-        try
-        {
-            var result = await _sessionManagementService.RevokeExpiredRefreshTokensAsync();
-            return Ok(ApiResponse<bool>.SuccessResult(result));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking expired refresh tokens");
-            return StatusCode(500, ApiResponse<bool>.ErrorResult("An error occurred while revoking expired refresh tokens"));
+            _logger.LogError(ex, "Error getting current user login history");
+            return StatusCode(500, ApiResponse<List<LoginHistoryDto>>.ErrorResult("An error occurred while getting your login history"));
         }
     }
 
     private string GetCurrentUserId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? 
-               User.FindFirst("sub")?.Value ?? 
-               User.FindFirst("nameid")?.Value ?? 
-               throw new UnauthorizedAccessException("User ID not found in token");
+        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? throw new UnauthorizedAccessException("User ID not found");
+    }
+
+    private string GetCurrentSessionId()
+    {
+        return User.FindFirst("SessionId")?.Value ?? Guid.NewGuid().ToString();
     }
 }
