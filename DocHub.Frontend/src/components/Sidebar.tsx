@@ -3,7 +3,6 @@ import {
   LayoutDashboard, 
   FileText, 
   ArrowRightLeft, 
-  HandHeart, 
   CheckCircle, 
   Plus,
   Download,
@@ -116,7 +115,6 @@ export function Sidebar({ activeModule, activePage, onPageChange, currentUser }:
   // Add admin-only pages
   if (currentUser.permissions.isAdmin) {
     erPages.push({ id: 'dynamic-letters', label: 'Tab Management', icon: Layers, isStatic: true, category: 'admin' });
-    erPages.push({ id: 'tab-persistence', label: 'Tab Persistence', icon: HandHeart, isStatic: true, category: 'admin' });
     erPages.push({ id: 'user-management', label: 'User Management', icon: Users, isStatic: true, category: 'admin' });
     erPages.push({ id: 'session-management', label: 'Session Management', icon: Eye, isStatic: true, category: 'admin' });
   }

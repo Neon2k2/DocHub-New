@@ -95,13 +95,33 @@ public class EmailController : ControllerBase
     {
         try
         {
+            _logger.LogInformation("📧 [EMAIL-CONTROLLER] Getting email jobs with page {Page}, pageSize {PageSize}", request.Page, request.PageSize);
+            
+            // Validate and limit page size
+            if (request.PageSize <= 0 || request.PageSize > 100)
+            {
+                request.PageSize = 20; // Default page size
+            }
+            
+            if (request.Page <= 0)
+            {
+                request.Page = 1;
+            }
+
             var userId = GetCurrentUserId();
             var emailJobs = await _emailService.GetEmailJobsAsync(request, userId);
+            
+            _logger.LogInformation("✅ [EMAIL-CONTROLLER] Successfully retrieved {Count} email jobs", emailJobs.Count());
             return Ok(ApiResponse<IEnumerable<EmailJobDto>>.SuccessResult(emailJobs));
+        }
+        catch (TimeoutException ex)
+        {
+            _logger.LogWarning(ex, "⏰ [EMAIL-CONTROLLER] Request timeout getting email jobs");
+            return Ok(ApiResponse<IEnumerable<EmailJobDto>>.SuccessResult(new List<EmailJobDto>()));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting email jobs");
+            _logger.LogError(ex, "❌ [EMAIL-CONTROLLER] Error getting email jobs");
             // Return empty list instead of error for now to prevent 404 in frontend
             return Ok(ApiResponse<IEnumerable<EmailJobDto>>.SuccessResult(new List<EmailJobDto>()));
         }

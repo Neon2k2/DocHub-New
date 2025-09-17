@@ -16,6 +16,7 @@ export function ERDashboard() {
   const [tabsLoading, setTabsLoading] = useState(true);
   const [tabsError, setTabsError] = useState<string | null>(null);
   const [tabRequests, setTabRequests] = useState<Record<string, any[]>>({});
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
   // Load dynamic tabs
   useEffect(() => {
@@ -36,42 +37,51 @@ export function ERDashboard() {
     loadTabs();
   }, []);
 
-  // Load document requests for each tab
+  // Load document requests for each tab with optimized caching and debouncing
   useEffect(() => {
     const loadTabRequests = async () => {
       if (dynamicTabs.length === 0) return;
 
-      const requestsPromises = dynamicTabs.map(async (tab) => {
-        try {
-          const response = await apiService.getDocumentRequests({
-            documentType: tab.letterType,
-            page: 1,
-            limit: 1000
-          });
-          
-          if (response.success && response.data) {
-            const mappedRequests = (response.data.items || []).map((request: any) => ({
-              ...request,
-              employeeName: request.employee?.name || 'Unknown Employee'
-            }));
-            return { tabId: tab.id, requests: mappedRequests };
-          }
-          return { tabId: tab.id, requests: [] };
-        } catch (err) {
-          console.error(`Error fetching requests for tab ${tab.id}:`, err);
-          return { tabId: tab.id, requests: [] };
-        }
-      });
+      setRequestsLoading(true);
+      
+      // Use a single API call to get all document requests, then filter by tab
+      try {
+        const response = await apiService.getDocumentRequests({
+          page: 1,
+          limit: 1000 // Get all requests at once
+        });
+        
+        if (response.success && response.data) {
+          const allRequests = (response.data.items || []).map((request: any) => ({
+            ...request,
+            employeeName: request.employee?.name || 'Unknown Employee'
+          }));
 
-      const results = await Promise.all(requestsPromises);
-      const requestsMap: Record<string, any[]> = {};
-      results.forEach(({ tabId, requests }) => {
-        requestsMap[tabId] = requests;
-      });
-      setTabRequests(requestsMap);
+          // Group requests by tab
+          const requestsMap: Record<string, any[]> = {};
+          dynamicTabs.forEach(tab => {
+            requestsMap[tab.id] = allRequests.filter(request => 
+              request.documentType === tab.letterType
+            );
+          });
+          setTabRequests(requestsMap);
+        }
+      } catch (err) {
+        console.error('Error fetching document requests:', err);
+        // Set empty requests for all tabs on error
+        const requestsMap: Record<string, any[]> = {};
+        dynamicTabs.forEach(tab => {
+          requestsMap[tab.id] = [];
+        });
+        setTabRequests(requestsMap);
+      } finally {
+        setRequestsLoading(false);
+      }
     };
 
-    loadTabRequests();
+    // Debounce the request to avoid excessive API calls
+    const timeoutId = setTimeout(loadTabRequests, 300);
+    return () => clearTimeout(timeoutId);
   }, [dynamicTabs]);
 
   if (loading) {
@@ -157,10 +167,10 @@ export function ERDashboard() {
     
     return {
       title: tab.name,
-      value: requests.length,
+      value: requestsLoading ? '...' : requests.length,
       icon: <FileText className="h-4 w-4" />,
-      description: `${pendingCount} pending, ${approvedCount} approved`,
-      trend: pendingCount > 0 ? `${pendingCount} pending` : 'All caught up',
+      description: requestsLoading ? 'Loading...' : `${pendingCount} pending, ${approvedCount} approved`,
+      trend: requestsLoading ? 'Loading...' : (pendingCount > 0 ? `${pendingCount} pending` : 'All caught up'),
       color: index % 2 === 0 ? 'text-orange-400' : 'text-purple-400',
       tabId: tab.id
     };

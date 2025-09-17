@@ -1,5 +1,6 @@
 using DocHub.Core.Entities;
 using DocHub.Shared.DTOs.Emails;
+using DocHub.Shared.DTOs.Common;
 
 namespace DocHub.Core.Interfaces;
 
@@ -27,4 +28,12 @@ public interface IEmailService
 
     // Email Status Polling
     Task PollEmailStatusesAsync();
+
+    // Email History
+    Task<PaginatedResponse<EmailJobDto>> GetEmailHistoryAsync(string tabId, GetEmailHistoryRequest request);
+    Task<EmailStatsDto> GetEmailStatsAsync(string tabId);
+
+    // Insights and Analytics
+    Task<object> GetInsightsAsync(string tabId, string timeRange);
+    Task<object> GetAnalyticsAsync(string tabId, string timeRange, string metric);
 }

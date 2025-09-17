@@ -190,3 +190,55 @@ public class RevokeAllRefreshTokensRequest
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
+
+// Additional DTOs for controller compatibility
+public class ActiveSessionDto
+{
+    [JsonPropertyName("id")]
+    public Guid Id { get; set; }
+
+    [JsonPropertyName("userId")]
+    public Guid UserId { get; set; }
+
+    [JsonPropertyName("userName")]
+    public string UserName { get; set; } = string.Empty;
+
+    [JsonPropertyName("userEmail")]
+    public string UserEmail { get; set; } = string.Empty;
+
+    [JsonPropertyName("ipAddress")]
+    public string IpAddress { get; set; } = string.Empty;
+
+    [JsonPropertyName("userAgent")]
+    public string UserAgent { get; set; } = string.Empty;
+
+    [JsonPropertyName("deviceName")]
+    public string? DeviceName { get; set; }
+
+    [JsonPropertyName("deviceType")]
+    public string? DeviceType { get; set; }
+
+    [JsonPropertyName("browserName")]
+    public string? BrowserName { get; set; }
+
+    [JsonPropertyName("operatingSystem")]
+    public string? OperatingSystem { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("lastActivityAt")]
+    public DateTime LastActivityAt { get; set; }
+
+    [JsonPropertyName("expiresAt")]
+    public DateTime ExpiresAt { get; set; }
+
+    [JsonPropertyName("isActive")]
+    public bool IsActive { get; set; }
+
+    [JsonPropertyName("sessionDuration")]
+    public TimeSpan SessionDuration { get; set; }
+
+    [JsonPropertyName("location")]
+    public string? Location { get; set; }
+}

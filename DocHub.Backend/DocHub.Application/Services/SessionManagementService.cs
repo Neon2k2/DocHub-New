@@ -1008,4 +1008,49 @@ public class SessionManagementService : ISessionManagementService
             return false;
         }
     }
+
+    public async Task<List<LoginHistoryDto>> GetUserLoginHistoryAsync(Guid userId, int page = 1, int pageSize = 20)
+    {
+        try
+        {
+            var skip = (page - 1) * pageSize;
+            
+            var sessions = await _dbContext.UserSessions
+                .Include(s => s.User)
+                .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.CreatedAt)
+                .Skip(skip)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var loginHistory = sessions.Select(session => new LoginHistoryDto
+            {
+                Id = session.Id,
+                UserId = session.UserId,
+                UserName = session.User?.Username ?? "Unknown",
+                UserEmail = session.User?.Email ?? "Unknown",
+                IpAddress = session.IpAddress,
+                UserAgent = session.UserAgent,
+                DeviceName = session.DeviceName,
+                DeviceType = session.DeviceType,
+                BrowserName = session.BrowserName,
+                OperatingSystem = session.OperatingSystem,
+                LoginAt = session.CreatedAt,
+                LogoutAt = session.LoggedOutAt,
+                SessionDuration = session.LoggedOutAt.HasValue ? 
+                    session.LoggedOutAt.Value - session.CreatedAt : 
+                    DateTime.UtcNow - session.CreatedAt,
+                IsSuccessful = true, // Assuming all sessions in the table are successful
+                FailureReason = null,
+                Location = null // Could be enhanced with IP geolocation
+            }).ToList();
+
+            return loginHistory;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting user login history: {UserId}", userId);
+            throw;
+        }
+    }
 }

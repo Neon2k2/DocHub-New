@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, CheckCircle, AlertCircle, Clock, User, Eye, Loader2, RefreshCw, X, Calendar, Filter } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Mail, CheckCircle, AlertCircle, Clock, User, Eye, Loader2, RefreshCw, X, Calendar, Filter, Download, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -23,23 +23,80 @@ interface EmailHistoryDialogProps {
   highlightedEmailJobId?: string | null;
 }
 
+// Virtual scrolling hook
+const useVirtualScroll = (items: any[], itemHeight: number = 80, containerHeight: number = 400) => {
+  const [scrollTop, setScrollTop] = useState(0);
+  
+  const visibleStart = Math.floor(scrollTop / itemHeight);
+  const visibleEnd = Math.min(visibleStart + Math.ceil(containerHeight / itemHeight) + 1, items.length);
+  
+  const visibleItems = items.slice(visibleStart, visibleEnd);
+  const totalHeight = items.length * itemHeight;
+  const offsetY = visibleStart * itemHeight;
+  
+  return {
+    visibleItems,
+    totalHeight,
+    offsetY,
+    setScrollTop
+  };
+};
+
 export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlightedEmailJobId }: EmailHistoryDialogProps) {
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalPages, setTotalPages] = useState(1);
   
   console.log('📧 [EMAIL-HISTORY] EmailHistoryDialog rendered with highlightedEmailJobId:', highlightedEmailJobId);
   const [filter, setFilter] = useState({
     status: 'all',
     employee: '',
-    dateRange: 'all'
+    dateRange: 'all',
+    searchTerm: ''
   });
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  
   const [realTimeUpdates, setRealTimeUpdates] = useState<EmailStatusUpdate[]>([]);
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
   const [signalRCallback, setSignalRCallback] = useState<((update: EmailStatusUpdate) => void) | null>(null);
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [isExporting, setIsExporting] = useState(false);
 
-  const pageSize = 20;
+  // Virtual scrolling
+  const { visibleItems, totalHeight, offsetY, setScrollTop } = useVirtualScroll(emailJobs, 80, 400);
+
+  // Memoized filtered and sorted emails
+  const processedEmails = useMemo(() => {
+    let filtered = emailJobs.filter(job => {
+      if (filter.status !== 'all' && job.status !== filter.status) return false;
+      if (filter.employee && !job.employeeName.toLowerCase().includes(filter.employee.toLowerCase())) return false;
+      if (filter.searchTerm && !job.subject.toLowerCase().includes(filter.searchTerm.toLowerCase()) && 
+          !job.employeeName.toLowerCase().includes(filter.searchTerm.toLowerCase())) return false;
+      return true;
+    });
+
+    // Sort
+    filtered.sort((a, b) => {
+      let aVal = a[sortBy as keyof EmailJob];
+      let bVal = b[sortBy as keyof EmailJob];
+      
+      if (sortBy === 'createdAt' || sortBy === 'sentAt' || sortBy === 'deliveredAt') {
+        aVal = new Date(aVal as string).getTime();
+        bVal = new Date(bVal as string).getTime();
+      }
+      
+      if (sortDirection === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+
+    return filtered;
+  }, [emailJobs, filter, sortBy, sortDirection]);
 
   useEffect(() => {
     if (open) {
@@ -93,53 +150,46 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
   const loadEmailHistory = async (forceRefresh = false) => {
     console.log('📧 [EMAIL_HISTORY] Loading email history for tab:', tabId, 'page:', currentPage, 'forceRefresh:', forceRefresh);
     
-    // Create cache key based on tab and page
-    const cacheKey = `email_history_${tabId}_${currentPage}_${pageSize}`;
-    const allDataCacheKey = `email_history_all_${tabId}`;
+    // Create cache key based on tab, page, and filters
+    const cacheKey = `email_history_${tabId}_${currentPage}_${pageSize}_${filter.status}_${filter.employee}_${filter.searchTerm}`;
     
     // Check cache first (unless forcing refresh)
     if (!forceRefresh) {
-      const cachedData = cacheService.get<{emailJobs: EmailJob[], totalPages: number}>(cacheKey);
+      const cachedData = cacheService.get<{emailJobs: EmailJob[], totalCount: number, totalPages: number}>(cacheKey);
       if (cachedData) {
         console.log('📦 [EMAIL_HISTORY] Returning cached email history:', cachedData.emailJobs.length);
         setEmailJobs(cachedData.emailJobs);
+        setTotalCount(cachedData.totalCount);
         setTotalPages(cachedData.totalPages);
-        return;
-      }
-      
-      // Check if we have all data cached and can slice it
-      const allCachedData = cacheService.get<{emailJobs: EmailJob[], totalPages: number}>(allDataCacheKey);
-      if (allCachedData && currentPage === 1) {
-        console.log('📦 [EMAIL_HISTORY] Using all cached data for page 1:', allCachedData.emailJobs.length);
-        setEmailJobs(allCachedData.emailJobs);
-        setTotalPages(allCachedData.totalPages);
         return;
       }
     }
     
     setLoading(true);
     try {
-      // Prefetch next page in background to speed UX
-      const responsePromise = apiService.getTabEmailHistory(tabId, currentPage, pageSize);
-      if (currentPage === 1) {
-        apiService.getTabEmailHistory(tabId, 2, pageSize).catch(() => {});
-      }
-      const response = await responsePromise;
+      const response = await apiService.getEmailHistory(tabId, {
+        page: currentPage,
+        pageSize: pageSize,
+        status: filter.status !== 'all' ? filter.status : undefined,
+        searchTerm: filter.searchTerm || filter.employee,
+        sortBy: sortBy,
+        sortDirection: sortDirection
+      });
+      
       console.log('📊 [EMAIL_HISTORY] API response:', response);
       
       if (response.success && response.data) {
-        console.log('✅ [EMAIL_HISTORY] Successfully loaded', response.data.length, 'email jobs');
-        setEmailJobs(response.data);
-        // Calculate total pages (this is a simplified calculation)
-        const totalPages = Math.ceil(response.data.length / pageSize);
-        setTotalPages(totalPages);
-        console.log('📄 [EMAIL_HISTORY] Set total pages to:', totalPages);
+        console.log('✅ [EMAIL_HISTORY] Successfully loaded', response.data.items.length, 'email jobs');
+        setEmailJobs(response.data.items);
+        setTotalCount(response.data.totalCount);
+        setTotalPages(response.data.totalPages);
         
-        // Cache for 1 minute fresh, 5 minutes stale window
-        cacheService.set(cacheKey, { emailJobs: response.data, totalPages }, 60 * 1000, 5 * 60 * 1000);
-        if (currentPage === 1) {
-          cacheService.set(allDataCacheKey, { emailJobs: response.data, totalPages }, 60 * 1000, 5 * 60 * 1000);
-        }
+        // Cache for 5 minutes fresh, 15 minutes stale window
+        cacheService.set(cacheKey, { 
+          emailJobs: response.data.items, 
+          totalCount: response.data.totalCount,
+          totalPages: response.data.totalPages
+        }, 5 * 60 * 1000, 15 * 60 * 1000);
       } else {
         console.log('⚠️ [EMAIL_HISTORY] No data received from API');
       }
@@ -151,10 +201,56 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
     }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     console.log('🔄 [EMAIL_HISTORY] Manual refresh triggered');
     cacheService.invalidatePattern(`email_history_${tabId}_`);
     loadEmailHistory(true);
+  }, [tabId, currentPage, pageSize, filter, sortBy, sortDirection]);
+
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
+
+  const handlePageSizeChange = useCallback((size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  }, []);
+
+  const handleSort = useCallback((field: string) => {
+    if (sortBy === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDirection('desc');
+    }
+  }, [sortBy]);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await apiService.request(`/api/email-history/${tabId}/export`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `email-history-${tabName}-${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -197,15 +293,9 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
     return d.toLocaleString();
   };
 
-  const filteredEmails = emailJobs.filter(job => {
-    if (filter.status !== 'all' && job.status !== filter.status) return false;
-    if (filter.employee && !job.employeeName.toLowerCase().includes(filter.employee.toLowerCase())) return false;
-    return true;
-  });
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[80vh] overflow-hidden">
+      <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -225,6 +315,15 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleExport}
+                  disabled={isExporting || emailJobs.length === 0}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleRefresh}
                   disabled={loading}
                 >
@@ -235,10 +334,20 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
             </div>
 
             <TabsContent value="history" className="flex-1 overflow-hidden">
-              {/* Filters */}
+              {/* Advanced Filters */}
               <Card className="mb-4">
                 <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-gray-500" />
+                      <Input
+                        placeholder="Search emails..."
+                        value={filter.searchTerm}
+                        onChange={(e) => setFilter(prev => ({ ...prev, searchTerm: e.target.value }))}
+                        className="flex-1"
+                      />
+                    </div>
+                    
                     <Select
                       value={filter.status}
                       onValueChange={(value) => setFilter(prev => ({ ...prev, status: value }))}
@@ -284,84 +393,153 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                 </CardContent>
               </Card>
 
-              {/* Email List */}
+              {/* Email List with Virtual Scrolling */}
               <Card className="flex-1 overflow-hidden">
                 <CardContent className="p-0 h-full">
-                  <ScrollArea className="h-full">
-                    {loading ? (
-                      <div className="flex items-center justify-center h-32">
-                        <Loading />
-                      </div>
-                    ) : filteredEmails.length === 0 ? (
-                      <div className="text-center py-12">
-                        <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold mb-2">No Email History</h3>
-                        <p className="text-muted-foreground">
-                          No emails have been sent from this tab yet.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 p-4">
-                        {filteredEmails.map((job) => (
-                          <div
-                            key={job.id}
-                            className={`flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors ${
-                              highlightedEmailJobId === job.id 
-                                ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/50' 
-                                : ''
-                            }`}
-                          >
-                            <div className="flex-shrink-0">
-                              {getStatusIcon(job.status)}
-                            </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center h-32">
+                      <Loading />
+                    </div>
+                  ) : processedEmails.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Email History</h3>
+                      <p className="text-muted-foreground">
+                        No emails have been sent from this tab yet.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="h-96 overflow-auto" onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+                      <div style={{ height: totalHeight, position: 'relative' }}>
+                        <div style={{ transform: `translateY(${offsetY}px)` }}>
+                          {visibleItems.map((job) => (
+                            <div
+                              key={job.id}
+                              className={`flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors ${
+                                highlightedEmailJobId === job.id 
+                                  ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/50' 
+                                  : ''
+                              }`}
+                              style={{ height: 80 }}
+                            >
+                              <div className="flex-shrink-0">
+                                {getStatusIcon(job.status)}
+                              </div>
 
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-medium truncate">{job.employeeName}</h4>
-                                  <span className="text-sm text-muted-foreground">
-                                    {job.employeeEmail}
-                                  </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-medium truncate">{job.employeeName}</h4>
+                                    <span className="text-sm text-muted-foreground">
+                                      {job.employeeEmail}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {getStatusBadge(job.status)}
+                                    <span className="text-xs text-muted-foreground">
+                                      {formatDateTime(job.createdAt)}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  {getStatusBadge(job.status)}
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatDateTime(job.createdAt)}
-                                  </span>
+
+                                <div className="text-sm text-muted-foreground">
+                                  <p className="truncate">{job.subject}</p>
+                                  {job.errorMessage && (
+                                    <p className="text-red-500 text-xs mt-1">
+                                      Error: {job.errorMessage}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                  {job.sentAt && (
+                                    <span>Sent: {formatDateTime(job.sentAt)}</span>
+                                  )}
+                                  {job.deliveredAt && (
+                                    <span>Delivered: {formatDateTime(job.deliveredAt)}</span>
+                                  )}
+                                  {job.openedAt && (
+                                    <span>Opened: {formatDateTime(job.openedAt)}</span>
+                                  )}
+                                  {job.clickedAt && (
+                                    <span>Clicked: {formatDateTime(job.clickedAt)}</span>
+                                  )}
                                 </div>
                               </div>
-
-                              <div className="text-sm text-muted-foreground">
-                                <p className="truncate">{job.subject}</p>
-                                {job.errorMessage && (
-                                  <p className="text-red-500 text-xs mt-1">
-                                    Error: {job.errorMessage}
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                                {job.sentAt && (
-                                  <span>Sent: {formatDateTime(job.sentAt)}</span>
-                                )}
-                                {job.deliveredAt && (
-                                  <span>Delivered: {formatDateTime(job.deliveredAt)}</span>
-                                )}
-                                {job.openedAt && (
-                                  <span>Opened: {formatDateTime(job.openedAt)}</span>
-                                )}
-                                {job.clickedAt && (
-                                  <span>Clicked: {formatDateTime(job.clickedAt)}</span>
-                                )}
-                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    )}
-                  </ScrollArea>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <Card className="mt-4">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">
+                          Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} emails
+                        </span>
+                        <Select value={pageSize.toString()} onValueChange={(value) => handlePageSizeChange(parseInt(value))}>
+                          <SelectTrigger className="w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="10">10</SelectItem>
+                            <SelectItem value="20">20</SelectItem>
+                            <SelectItem value="50">50</SelectItem>
+                            <SelectItem value="100">100</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(1)}
+                          disabled={currentPage === 1}
+                        >
+                          <ChevronsLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        
+                        <span className="text-sm">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(totalPages)}
+                          disabled={currentPage === totalPages}
+                        >
+                          <ChevronsRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="live" className="flex-1 overflow-hidden">

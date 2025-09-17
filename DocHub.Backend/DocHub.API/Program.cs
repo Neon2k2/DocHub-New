@@ -86,6 +86,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// HttpContext accessor (needed for session/user context in services)
+builder.Services.AddHttpContextAccessor();
+
 // SignalR
 builder.Services.AddSignalR();
 
@@ -124,6 +127,7 @@ app.UseAuthorization();
 
 // Custom middleware
 app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseMiddleware<PerformanceMonitoringMiddleware>();
 
 app.MapControllers();
 app.MapHub<NotificationHub>("/notificationHub");

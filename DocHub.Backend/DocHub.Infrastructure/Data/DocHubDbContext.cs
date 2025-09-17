@@ -42,6 +42,12 @@ public class DocHubDbContext : DbContext, IDbContext
             entity.HasIndex(e => e.Email).IsUnique();
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+            
+            // Performance indexes for dashboard queries
+            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_Users_IsActive");
+            entity.HasIndex(e => e.LastLoginAt).HasDatabaseName("IX_Users_LastLoginAt");
+            entity.HasIndex(e => e.CreatedAt).HasDatabaseName("IX_Users_CreatedAt");
+            entity.HasIndex(e => e.UpdatedAt).HasDatabaseName("IX_Users_UpdatedAt");
         });
 
         // Configure Role entity
@@ -179,6 +185,12 @@ public class DocHubDbContext : DbContext, IDbContext
                 .HasForeignKey(e => e.GeneratedBy)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.GeneratedAt).HasDefaultValueSql("GETUTCDATE()");
+            
+            // Performance indexes for dashboard queries
+            entity.HasIndex(e => e.GeneratedAt).HasDatabaseName("IX_GeneratedDocuments_GeneratedAt");
+            entity.HasIndex(e => e.GeneratedBy).HasDatabaseName("IX_GeneratedDocuments_GeneratedBy");
+            entity.HasIndex(e => e.ExcelUploadId).HasDatabaseName("IX_GeneratedDocuments_ExcelUploadId");
+            entity.HasIndex(e => new { e.GeneratedAt, e.GeneratedBy }).HasDatabaseName("IX_GeneratedDocuments_GeneratedAt_GeneratedBy");
         });
 
 
@@ -204,6 +216,13 @@ public class DocHubDbContext : DbContext, IDbContext
                 .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+            
+            // Performance indexes for dashboard queries
+            entity.HasIndex(e => e.Status).HasDatabaseName("IX_EmailJobs_Status");
+            entity.HasIndex(e => e.CreatedAt).HasDatabaseName("IX_EmailJobs_CreatedAt");
+            entity.HasIndex(e => e.SentBy).HasDatabaseName("IX_EmailJobs_SentBy");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("IX_EmailJobs_DocumentId");
+            entity.HasIndex(e => new { e.Status, e.CreatedAt }).HasDatabaseName("IX_EmailJobs_Status_CreatedAt");
         });
 
         // Configure AuditLog entity

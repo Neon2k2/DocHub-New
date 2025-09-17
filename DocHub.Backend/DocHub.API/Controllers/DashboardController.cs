@@ -4,6 +4,7 @@ using DocHub.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 
 namespace DocHub.API.Controllers;
 
@@ -14,40 +15,94 @@ public class DashboardController : ControllerBase
 {
     private readonly IDashboardService _dashboardService;
     private readonly ILogger<DashboardController> _logger;
+    private readonly IDbContext _dbContext;
 
-    public DashboardController(IDashboardService dashboardService, ILogger<DashboardController> logger)
+    public DashboardController(IDashboardService dashboardService, ILogger<DashboardController> logger, IDbContext dbContext)
     {
         _dashboardService = dashboardService;
         _logger = logger;
+        _dbContext = dbContext;
     }
 
-    [HttpGet("{module}/stats")]
-    public async Task<ActionResult<ApiResponse<DashboardStatsDto>>> GetDashboardStats(string module)
-    {
-        try
+        [HttpGet("{module}/stats")]
+        public async Task<ActionResult<ApiResponse<DashboardStatsDto>>> GetDashboardStats(string module)
         {
-            _logger.LogInformation("Getting dashboard stats for module: {Module}", module);
-            
-            // Get current user context
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? User.FindFirst("nameid")?.Value;
-            var isAdmin = User.IsInRole("Admin") || User.IsInRole("Administrator");
-            
-            _logger.LogInformation("User context - UserId: {UserId}, IsAdmin: {IsAdmin}", userId, isAdmin);
-            
-            var stats = await _dashboardService.GetDashboardStatsAsync(module, userId, isAdmin);
-            
-            _logger.LogInformation("Successfully retrieved dashboard stats for module: {Module}", module);
-            return Ok(ApiResponse<DashboardStatsDto>.SuccessResult(stats));
+            try
+            {
+                _logger.LogInformation("📊 [DASHBOARD-CONTROLLER] Getting dashboard stats for module: {Module}", module);
+                
+                // Get current user context
+                var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? User.FindFirst("nameid")?.Value;
+                var isAdmin = User.IsInRole("Admin") || User.IsInRole("Administrator");
+                
+                _logger.LogInformation("👤 [DASHBOARD-CONTROLLER] User context - UserId: {UserId}, IsAdmin: {IsAdmin}", userId, isAdmin);
+                
+                // Add timeout to prevent hanging requests
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var stats = await _dashboardService.GetDashboardStatsAsync(module, userId, isAdmin);
+                
+                _logger.LogInformation("✅ [DASHBOARD-CONTROLLER] Successfully retrieved dashboard stats for module: {Module} - TotalUsers: {TotalUsers}, ActiveUsers: {ActiveUsers}", 
+                    module, stats.TotalUsers, stats.ActiveUsers);
+                return Ok(ApiResponse<DashboardStatsDto>.SuccessResult(stats));
+            }
+            catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "⏰ [DASHBOARD-CONTROLLER] Request timeout getting dashboard stats for module {Module}", module);
+                return StatusCode(408, ApiResponse<DashboardStatsDto>.ErrorResult("Request timeout - please try again"));
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogWarning(ex, "⏰ [DASHBOARD-CONTROLLER] Request timeout getting dashboard stats for module {Module}", module);
+                return StatusCode(408, ApiResponse<DashboardStatsDto>.ErrorResult("Request timeout - please try again"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ [DASHBOARD-CONTROLLER] Error getting dashboard stats for module {Module}", module);
+                return StatusCode(500, ApiResponse<DashboardStatsDto>.ErrorResult("An error occurred while getting dashboard stats"));
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting dashboard stats for module {Module}", module);
-            return StatusCode(500, ApiResponse<DashboardStatsDto>.ErrorResult("An error occurred while getting dashboard stats"));
-        }
-    }
 
-    [HttpGet("document-requests")]
-    public async Task<ActionResult<ApiResponse<PaginatedResponse<DocumentRequestDto>>>> GetDocumentRequests(
+        [HttpGet("debug-data")]
+        public async Task<ActionResult> GetDebugData()
+        {
+            try
+            {
+                var emailJobs = await _dbContext.EmailJobs
+                    .Select(ej => new { ej.Id, ej.Status, ej.CreatedAt, ej.RecipientEmail })
+                    .Take(10)
+                    .ToListAsync();
+                
+                var letterTypes = await _dbContext.LetterTypeDefinitions
+                    .Select(lt => new { lt.Id, lt.DisplayName, lt.IsActive })
+                    .ToListAsync();
+                
+                var documents = await _dbContext.GeneratedDocuments
+                    .Select(gd => new { gd.Id, gd.GeneratedAt })
+                    .Take(10)
+                    .ToListAsync();
+                
+                var totalEmailJobs = await _dbContext.EmailJobs.CountAsync();
+                var totalLetterTypes = await _dbContext.LetterTypeDefinitions.CountAsync();
+                var totalDocuments = await _dbContext.GeneratedDocuments.CountAsync();
+                
+                return Ok(new { 
+                    EmailJobs = emailJobs,
+                    LetterTypes = letterTypes,
+                    Documents = documents,
+                    EmailJobCount = totalEmailJobs,
+                    LetterTypeCount = totalLetterTypes,
+                    DocumentCount = totalDocuments,
+                    Message = "Direct database counts"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpGet("document-requests")]
+        public async Task<ActionResult<ApiResponse<PaginatedResponse<DocumentRequestDto>>>> GetDocumentRequests(
         [FromQuery] string? documentType = null,
         [FromQuery] string? status = null,
         [FromQuery] string? employeeId = null,

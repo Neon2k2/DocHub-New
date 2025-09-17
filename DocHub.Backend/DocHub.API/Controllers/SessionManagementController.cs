@@ -178,18 +178,37 @@ public class SessionManagementController : ControllerBase
         }
     }
 
-    [HttpGet("login-history/{userId}")]
-    [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>>> GetUserLoginHistory(Guid userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
-    {
-        return await Task.FromResult(Ok(ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.SuccessResult(new List<DocHub.Shared.DTOs.Session.LoginHistoryDto>())));
-    }
+    // [HttpGet("login-history/{userId}")]
+    // [Authorize(Roles = "Admin")]
+    // public async Task<ActionResult<ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>>> GetUserLoginHistory(Guid userId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    // {
+    //     try
+    //     {
+    //         var history = await _sessionManagementService.GetUserLoginHistoryAsync(userId, page, pageSize);
+    //         return Ok(ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.SuccessResult(history));
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError(ex, "Error getting login history for {UserId}", userId);
+    //         return StatusCode(500, ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.ErrorResult("An error occurred while getting login history"));
+    //     }
+    // }
 
-    [HttpGet("my-login-history")]
-    public async Task<ActionResult<ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>>> GetMyLoginHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
-    {
-        return await Task.FromResult(Ok(ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.SuccessResult(new List<DocHub.Shared.DTOs.Session.LoginHistoryDto>())));
-    }
+    // [HttpGet("my-login-history")]
+    // public async Task<ActionResult<ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>>> GetMyLoginHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    // {
+    //     try
+    //     {
+    //         var currentUserId = GetCurrentUserId();
+    //         var history = await _sessionManagementService.GetUserLoginHistoryAsync(Guid.Parse(currentUserId), page, pageSize);
+    //         return Ok(ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.SuccessResult(history));
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError(ex, "Error getting current user's login history");
+    //         return StatusCode(500, ApiResponse<List<DocHub.Shared.DTOs.Session.LoginHistoryDto>>.ErrorResult("An error occurred while getting your login history"));
+    //     }
+    // }
 
     private string GetCurrentUserId()
     {

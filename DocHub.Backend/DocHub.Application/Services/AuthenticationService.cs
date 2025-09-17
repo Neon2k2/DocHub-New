@@ -9,6 +9,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Http;
 
 namespace DocHub.Application.Services;
 
@@ -18,17 +19,23 @@ public class AuthenticationService : IAuthenticationService
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthenticationService> _logger;
     private readonly IDbContext _dbContext;
+    private readonly ISessionManagementService _sessionManagementService;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public AuthenticationService(
         IUserRepository userRepository,
         IConfiguration configuration,
         ILogger<AuthenticationService> logger,
-        IDbContext dbContext)
+        IDbContext dbContext,
+        ISessionManagementService sessionManagementService,
+        IHttpContextAccessor httpContextAccessor)
     {
         _userRepository = userRepository;
         _configuration = configuration;
         _logger = logger;
         _dbContext = dbContext;
+        _sessionManagementService = sessionManagementService;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -86,11 +93,26 @@ public class AuthenticationService : IAuthenticationService
             await _userRepository.UpdateAsync(user);
             await _dbContext.SaveChangesAsync();
 
-            var token = GenerateJwtToken(user);
-            var refreshToken = GenerateRefreshToken(user.Id);
+            // Prepare contextual info
+            var httpContext = _httpContextAccessor.HttpContext;
+            var ipAddress = httpContext?.Connection?.RemoteIpAddress?.ToString() ?? string.Empty;
+            var userAgent = httpContext?.Request?.Headers["User-Agent"].ToString() ?? string.Empty;
 
-            // Store refresh token (you might want to store this in a separate table)
-            // For now, we'll include it in the response
+            // Create persistent refresh token (DB)
+            var refreshToken = GenerateRefreshToken(user.Id);
+            var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+            await _sessionManagementService.CreateRefreshTokenAsync(user.Id, refreshToken, refreshTokenExpiry);
+
+            // Create session record and include SessionId in JWT
+            var sessionToken = Guid.NewGuid().ToString("N");
+            var session = await _sessionManagementService.CreateSessionAsync(
+                user.Id,
+                sessionToken,
+                refreshToken,
+                ipAddress,
+                userAgent);
+
+            var token = GenerateJwtToken(user, session.Id);
 
             return new LoginResponse
             {
@@ -118,64 +140,38 @@ public class AuthenticationService : IAuthenticationService
                 throw new UnauthorizedAccessException("Invalid refresh token");
             }
 
-            // Simple implementation: decode the refresh token to extract user ID
-            // In production, you'd store refresh tokens in a database with expiration dates
-            
-            try
+            // Validate refresh token against DB store
+            var stored = await _sessionManagementService.GetRefreshTokenAsync(request.RefreshToken);
+            if (stored == null || !stored.IsActive)
             {
-                // Decode the base64 refresh token
-                var tokenBytes = Convert.FromBase64String(request.RefreshToken);
-                var tokenData = System.Text.Encoding.UTF8.GetString(tokenBytes);
-                
-                // For this implementation, we'll embed the user ID in the refresh token
-                // Format: "userId|timestamp" - this is NOT secure for production!
-                var parts = tokenData.Split('|');
-                if (parts.Length != 2 || !Guid.TryParse(parts[0], out var userId))
-                {
-                    throw new UnauthorizedAccessException("Invalid refresh token format");
-                }
-                
-                // Check if the refresh token is not too old (7 days max)
-                if (long.TryParse(parts[1], out var timestamp))
-                {
-                    var tokenDate = DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime;
-                    if (DateTime.UtcNow.Subtract(tokenDate).TotalDays > 7)
-                    {
-                        throw new UnauthorizedAccessException("Refresh token expired");
-                    }
-                }
-                else
-                {
-                    throw new UnauthorizedAccessException("Invalid refresh token timestamp");
-                }
-                
-                // Get the user from database
-                var user = await _userRepository.GetByIdAsync(userId);
-                if (user == null || !user.IsActive)
-                {
-                    throw new UnauthorizedAccessException("User not found or inactive");
-                }
-                
-                // Generate new tokens
-                var newToken = GenerateJwtToken(user);
-                var newRefreshToken = GenerateRefreshToken(user.Id);
-                
-                _logger.LogInformation("Token refreshed successfully for user: {UserId}", userId);
-                
-                return new LoginResponse
-                {
-                    Token = newToken,
-                    RefreshToken = newRefreshToken,
-                    ExpiresAt = DateTime.UtcNow.AddMinutes(GetTokenExpirationMinutes()),
-                    User = MapToUserDto(user),
-                    ModuleAccess = GetUserModuleAccess(user),
-                    Roles = GetUserRoles(user)
-                };
+                throw new UnauthorizedAccessException("Invalid or expired refresh token");
             }
-            catch (FormatException)
+
+            var user = await _userRepository.GetByIdAsync(stored.UserId);
+            if (user == null || !user.IsActive)
             {
-                throw new UnauthorizedAccessException("Invalid refresh token format");
+                throw new UnauthorizedAccessException("User not found or inactive");
             }
+
+            // Revoke old token and issue a new pair
+            await _sessionManagementService.RevokeRefreshTokenAsync(stored.Id, "Rotated on refresh", stored.UserId.ToString());
+            var newRefreshToken = GenerateRefreshToken(user.Id);
+            var newRefreshExpiry = DateTime.UtcNow.AddDays(7);
+            await _sessionManagementService.CreateRefreshTokenAsync(user.Id, newRefreshToken, newRefreshExpiry);
+
+            var newJwt = GenerateJwtToken(user, null);
+
+            _logger.LogInformation("Token refreshed successfully for user: {UserId}", user.Id);
+
+            return new LoginResponse
+            {
+                Token = newJwt,
+                RefreshToken = newRefreshToken,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(GetTokenExpirationMinutes()),
+                User = MapToUserDto(user),
+                ModuleAccess = GetUserModuleAccess(user),
+                Roles = GetUserRoles(user)
+            };
         }
         catch (Exception ex)
         {
@@ -184,13 +180,14 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    public Task LogoutAsync(string userId)
+    public async Task LogoutAsync(string userId)
     {
         try
         {
-            // In a real implementation, you would invalidate the refresh token
-            // and potentially add the access token to a blacklist
             _logger.LogInformation("User {UserId} logged out", userId);
+            // Revoke all active refresh tokens and terminate other sessions
+            await _sessionManagementService.RevokeAllUserRefreshTokensAsync(Guid.Parse(userId), "User logout", userId);
+            await _sessionManagementService.TerminateAllUserSessionsAsync(Guid.Parse(userId), "User logout", userId, true);
         }
         catch (Exception ex)
         {
@@ -198,7 +195,7 @@ public class AuthenticationService : IAuthenticationService
             throw;
         }
         
-        return Task.CompletedTask;
+        return;
     }
 
     public Task<bool> ValidateTokenAsync(string token)
@@ -335,20 +332,34 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    private string GenerateJwtToken(User user)
+    private string GenerateJwtToken(User user, Guid? sessionId)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(GetJwtSecret());
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(ClaimTypes.Name, user.Username),
+            new Claim("firstName", user.FirstName),
+            new Claim("lastName", user.LastName)
+        };
+
+        // Add session id claim if available
+        if (sessionId.HasValue)
+        {
+            claims.Add(new Claim("SessionId", sessionId.Value.ToString()));
+        }
+
+        // Add role claims for [Authorize(Roles=...)] support
+        foreach (var role in GetUserRoles(user))
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim("firstName", user.FirstName),
-                new Claim("lastName", user.LastName)
-            }),
+            Subject = new ClaimsIdentity(claims),
             Expires = DateTime.UtcNow.AddMinutes(GetTokenExpirationMinutes()),
             Issuer = GetJwtIssuer(),
             Audience = GetJwtAudience(),

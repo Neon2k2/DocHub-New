@@ -16,80 +16,88 @@ public class UserManagementService : IUserManagementService
     private readonly IUserRepository _userRepository;
     private readonly IPasswordPolicyService _passwordPolicyService;
     private readonly ILogger<UserManagementService> _logger;
+    private readonly ICacheService _cacheService;
 
-    public UserManagementService(IDbContext dbContext, IUserRepository userRepository, IPasswordPolicyService passwordPolicyService, ILogger<UserManagementService> logger)
+    public UserManagementService(IDbContext dbContext, IUserRepository userRepository, IPasswordPolicyService passwordPolicyService, ILogger<UserManagementService> logger, ICacheService cacheService)
     {
         _dbContext = dbContext;
         _userRepository = userRepository;
         _passwordPolicyService = passwordPolicyService;
         _logger = logger;
+        _cacheService = cacheService;
     }
 
     public async Task<PaginatedResponse<UserDto>> GetUsersAsync(GetUsersRequest request)
     {
         try
         {
-            var query = _dbContext.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .AsQueryable();
-
-            // Apply filters
-            if (!string.IsNullOrEmpty(request.SearchTerm))
+            // Create cache key based on request parameters
+            var cacheKey = $"users:{request.Page}:{request.PageSize}:{request.SearchTerm}:{request.Role}:{request.Department}:{request.IsActive}:{request.SortBy}:{request.SortDirection}";
+            
+            return await _cacheService.GetOrSetAsync(cacheKey, async () =>
             {
-                var searchTerm = request.SearchTerm.ToLower();
-                query = query.Where(u => 
-                    u.Username.ToLower().Contains(searchTerm) ||
-                    u.Email.ToLower().Contains(searchTerm) ||
-                    u.FirstName.ToLower().Contains(searchTerm) ||
-                    u.LastName.ToLower().Contains(searchTerm) ||
-                    (u.Department != null && u.Department.ToLower().Contains(searchTerm)) ||
-                    (u.EmployeeId != null && u.EmployeeId.ToLower().Contains(searchTerm))
-                );
-            }
+                var query = _dbContext.Users
+                    .Include(u => u.UserRoles)
+                    .ThenInclude(ur => ur.Role)
+                    .AsQueryable();
 
-            if (!string.IsNullOrEmpty(request.Role))
-            {
-                query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Name == request.Role));
-            }
+                // Apply filters
+                if (!string.IsNullOrEmpty(request.SearchTerm))
+                {
+                    var searchTerm = request.SearchTerm.ToLower();
+                    query = query.Where(u => 
+                        u.Username.ToLower().Contains(searchTerm) ||
+                        u.Email.ToLower().Contains(searchTerm) ||
+                        u.FirstName.ToLower().Contains(searchTerm) ||
+                        u.LastName.ToLower().Contains(searchTerm) ||
+                        (u.Department != null && u.Department.ToLower().Contains(searchTerm)) ||
+                        (u.EmployeeId != null && u.EmployeeId.ToLower().Contains(searchTerm))
+                    );
+                }
 
-            if (!string.IsNullOrEmpty(request.Department))
-            {
-                query = query.Where(u => u.Department == request.Department);
-            }
+                if (!string.IsNullOrEmpty(request.Role))
+                {
+                    query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Name == request.Role));
+                }
 
-            if (request.IsActive.HasValue)
-            {
-                query = query.Where(u => u.IsActive == request.IsActive.Value);
-            }
+                if (!string.IsNullOrEmpty(request.Department))
+                {
+                    query = query.Where(u => u.Department == request.Department);
+                }
 
-            // Apply sorting
-            query = request.SortBy?.ToLower() switch
-            {
-                "username" => request.SortDirection == "asc" ? query.OrderBy(u => u.Username) : query.OrderByDescending(u => u.Username),
-                "email" => request.SortDirection == "asc" ? query.OrderBy(u => u.Email) : query.OrderByDescending(u => u.Email),
-                "firstname" => request.SortDirection == "asc" ? query.OrderBy(u => u.FirstName) : query.OrderByDescending(u => u.FirstName),
-                "lastname" => request.SortDirection == "asc" ? query.OrderBy(u => u.LastName) : query.OrderByDescending(u => u.LastName),
-                "department" => request.SortDirection == "asc" ? query.OrderBy(u => u.Department) : query.OrderByDescending(u => u.Department),
-                "lastlogin" => request.SortDirection == "asc" ? query.OrderBy(u => u.LastLoginAt) : query.OrderByDescending(u => u.LastLoginAt),
-                _ => request.SortDirection == "asc" ? query.OrderBy(u => u.CreatedAt) : query.OrderByDescending(u => u.CreatedAt)
-            };
+                if (request.IsActive.HasValue)
+                {
+                    query = query.Where(u => u.IsActive == request.IsActive.Value);
+                }
 
-            var totalCount = await query.CountAsync();
-            var users = await query
-                .Skip((request.Page - 1) * request.PageSize)
-                .Take(request.PageSize)
-                .Select(u => MapToUserDto(u))
-                .ToListAsync();
+                // Apply sorting
+                query = request.SortBy?.ToLower() switch
+                {
+                    "username" => request.SortDirection == "asc" ? query.OrderBy(u => u.Username) : query.OrderByDescending(u => u.Username),
+                    "email" => request.SortDirection == "asc" ? query.OrderBy(u => u.Email) : query.OrderByDescending(u => u.Email),
+                    "firstname" => request.SortDirection == "asc" ? query.OrderBy(u => u.FirstName) : query.OrderByDescending(u => u.FirstName),
+                    "lastname" => request.SortDirection == "asc" ? query.OrderBy(u => u.LastName) : query.OrderByDescending(u => u.LastName),
+                    "department" => request.SortDirection == "asc" ? query.OrderBy(u => u.Department) : query.OrderByDescending(u => u.Department),
+                    "lastlogin" => request.SortDirection == "asc" ? query.OrderBy(u => u.LastLoginAt) : query.OrderByDescending(u => u.LastLoginAt),
+                    _ => request.SortDirection == "asc" ? query.OrderBy(u => u.CreatedAt) : query.OrderByDescending(u => u.CreatedAt)
+                };
 
-            return new PaginatedResponse<UserDto>
-            {
-                Items = users,
-                TotalCount = totalCount,
-                Page = request.Page,
-                PageSize = request.PageSize,
-                TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
-            };
+                var totalCount = await query.CountAsync();
+                var users = await query
+                    .Skip((request.Page - 1) * request.PageSize)
+                    .Take(request.PageSize)
+                    .Select(u => MapToUserDto(u))
+                    .ToListAsync();
+
+                return new PaginatedResponse<UserDto>
+                {
+                    Items = users,
+                    TotalCount = totalCount,
+                    Page = request.Page,
+                    PageSize = request.PageSize,
+                    TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
+                };
+            }, TimeSpan.FromMinutes(5)); // Cache for 5 minutes
         }
         catch (Exception ex)
         {
@@ -170,6 +178,10 @@ public class UserManagementService : IUserManagementService
             {
                 await AssignRolesToUserAsync(user.Id, request.Roles);
             }
+
+            // Invalidate user-related caches
+            _cacheService.RemovePattern("users:*");
+            _cacheService.RemovePattern("stats:*");
 
             // Log activity
             await LogUserActivityAsync(user.Id, "USER_CREATED", $"User created by {currentUserId}", "", "");

@@ -22,6 +22,7 @@ import { EmailHistoryDialog } from './EmailHistoryDialog';
 import { signalRService, EmailStatusUpdate } from '../../services/signalr.service';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
+import { cacheService } from '../../services/cache.service';
 
 interface DynamicLetterTabProps {
   tab: DynamicTab;
@@ -360,15 +361,28 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     return Array.from(deptSet).sort();
   }, [mappedEmployees]);
 
-  // Load statistics
+  // Load statistics with caching
   const loadStatistics = async () => {
     try {
       console.log('📈 [DYNAMIC-TAB][INSIGHTS] Loading statistics for tab:', tab.id);
+      
+      // Use cached data if available
+      const cacheKey = `tab_statistics_${tab.id}`;
+      const cachedStats = cacheService.get<TabStatistics>(cacheKey);
+      if (cachedStats) {
+        console.log('📦 [DYNAMIC-TAB][INSIGHTS] Using cached statistics');
+        setStatistics(cachedStats);
+        return;
+      }
+      
       const response = await apiService.getTabStatistics(tab.id);
       console.log('📈 [DYNAMIC-TAB][INSIGHTS] API response:', response);
       if (response.success && response.data) {
         setStatistics(response.data);
         console.log('📈 [DYNAMIC-TAB][INSIGHTS] Statistics set:', response.data);
+        
+        // Cache for 5 minutes
+        cacheService.set(cacheKey, response.data, 5 * 60 * 1000);
       }
     } catch (error) {
       console.error('❌ [DYNAMIC-TAB][INSIGHTS] Error loading statistics:', error);
@@ -1245,7 +1259,7 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       </>
       )}
 
-      {/* History Section */}
+      {/* History Section - Now uses optimized EmailHistoryDialog */}
       {activeTab === 'history' && (
         <Card className="glass-panel border-glass-border">
           <CardContent className="p-6">
@@ -1257,37 +1271,62 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                   <p className="text-sm text-gray-600 dark:text-gray-400">View all email communications for this tab</p>
                 </div>
               </div>
+              <Button
+                onClick={() => setShowEmailHistoryDialog(true)}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <FileText className="h-4 w-4" />
+                View Full History
+              </Button>
             </div>
 
+            {/* Quick Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div className="text-2xl font-bold text-green-600">{statistics.totalMailSent}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Total Sent</div>
+              </div>
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div className="text-2xl font-bold text-yellow-600">{statistics.pending}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Pending</div>
+              </div>
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div className="text-2xl font-bold text-red-600">{statistics.notDelivered}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Failed</div>
+              </div>
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div className="text-2xl font-bold text-blue-600">{statistics.totalEmployees}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Total Employees</div>
+              </div>
+            </div>
+
+            {/* Recent Emails Preview */}
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
                 <span className="ml-2 text-gray-600 dark:text-gray-400">Loading email history...</span>
               </div>
             ) : emailJobs.length > 0 ? (
-              <div className="space-y-4">
-                {emailJobs.map((job) => (
-                  <div key={job.id} className="flex items-center gap-4 p-4 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors">
+              <div className="space-y-3">
+                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">Recent Emails</h4>
+                {emailJobs.slice(0, 5).map((job) => (
+                  <div key={job.id} className="flex items-center gap-4 p-3 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors">
                     <div className="flex-shrink-0">
-                      {job.status === 'sent' && <CheckCircle className="h-5 w-5 text-green-500" />}
-                      {job.status === 'delivered' && <CheckCircle className="h-5 w-5 text-blue-500" />}
-                      {job.status === 'opened' && <Eye className="h-5 w-5 text-purple-500" />}
-                      {job.status === 'clicked' && <MousePointer className="h-5 w-5 text-indigo-500" />}
-                      {job.status === 'bounced' && <AlertCircle className="h-5 w-5 text-red-500" />}
-                      {job.status === 'dropped' && <X className="h-5 w-5 text-red-500" />}
-                      {job.status === 'pending' && <Clock className="h-5 w-5 text-yellow-500" />}
-                      {job.status === 'failed' && <X className="h-5 w-5 text-red-500" />}
+                      {job.status === 'sent' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                      {job.status === 'delivered' && <CheckCircle className="h-4 w-4 text-blue-500" />}
+                      {job.status === 'opened' && <Eye className="h-4 w-4 text-purple-500" />}
+                      {job.status === 'clicked' && <MousePointer className="h-4 w-4 text-indigo-500" />}
+                      {job.status === 'bounced' && <AlertCircle className="h-4 w-4 text-red-500" />}
+                      {job.status === 'dropped' && <X className="h-4 w-4 text-red-500" />}
+                      {job.status === 'pending' && <Clock className="h-4 w-4 text-yellow-500" />}
+                      {job.status === 'failed' && <X className="h-4 w-4 text-red-500" />}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <h4 className="font-medium truncate">{job.employeeName || 'Unknown Employee'}</h4>
-                          <span className="text-sm text-muted-foreground">
-                            {job.employeeEmail || job.recipientEmail || 'No email'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
+                          <h5 className="font-medium truncate text-sm">{job.employeeName || 'Unknown Employee'}</h5>
                           <span className={`px-2 py-1 text-xs rounded-full ${
                             job.status === 'sent' ? 'bg-green-100 text-green-800' :
                             job.status === 'delivered' ? 'bg-blue-100 text-blue-800' :
@@ -1300,38 +1339,27 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
                           }`}>
                             {job.status}
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(job.createdAt).toLocaleString()}
-                          </span>
                         </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(job.createdAt).toLocaleDateString()}
+                        </span>
                       </div>
-
-                      <div className="text-sm text-muted-foreground">
-                        <p className="truncate">{job.subject}</p>
-                        {job.errorMessage && (
-                          <p className="text-red-500 text-xs mt-1">
-                            Error: {job.errorMessage}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                        {job.sentAt && (
-                          <span>Sent: {new Date(job.sentAt).toLocaleString()}</span>
-                        )}
-                        {job.deliveredAt && (
-                          <span>Delivered: {new Date(job.deliveredAt).toLocaleString()}</span>
-                        )}
-                        {job.openedAt && (
-                          <span>Opened: {new Date(job.openedAt).toLocaleString()}</span>
-                        )}
-                        {job.clickedAt && (
-                          <span>Clicked: {new Date(job.clickedAt).toLocaleString()}</span>
-                        )}
-                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-1">{job.subject}</p>
                     </div>
                   </div>
                 ))}
+                {emailJobs.length > 5 && (
+                  <div className="text-center pt-2">
+                    <Button
+                      onClick={() => setShowEmailHistoryDialog(true)}
+                      variant="outline"
+                      size="sm"
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      View All {emailJobs.length} Emails
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-gray-400">

@@ -1,6 +1,7 @@
 using DocHub.Core.Entities;
 using DocHub.Core.Interfaces;
 using DocHub.Shared.DTOs.Emails;
+using DocHub.Shared.DTOs.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
@@ -511,6 +512,187 @@ public class EmailService : IEmailService
         await _dbContext.SaveChangesAsync();
     }
 
+    private async Task<IEnumerable<EmailJobDto>> MapEmailJobsToDtoBatchAsync(IEnumerable<EmailJob> emailJobs)
+    {
+        try
+        {
+            _logger.LogInformation("🔄 [EMAIL-MAPPING] Starting batch mapping for {Count} email jobs", emailJobs.Count());
+            
+            var result = new List<EmailJobDto>();
+            var dynamicTableService = new DynamicTableService(_dbContext, _tableSchemaRepository, _loggerFactory.CreateLogger<DynamicTableService>());
+            
+            // Group email jobs by ExcelUploadId to batch dynamic table queries
+            var jobsByExcelUpload = emailJobs
+                .Where(job => job.ExcelUploadId.HasValue)
+                .GroupBy(job => job.ExcelUploadId.Value)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            _logger.LogInformation("📊 [EMAIL-MAPPING] Grouped into {GroupCount} Excel upload groups", jobsByExcelUpload.Count);
+
+            // Cache for dynamic table data to avoid repeated queries
+            var dynamicTableDataCache = new Dictionary<Guid, List<Dictionary<string, object>>>();
+
+            foreach (var emailJob in emailJobs)
+            {
+                try
+                {
+                    var dto = new EmailJobDto
+                    {
+                        Id = emailJob.Id,
+                        LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
+                        LetterTypeName = emailJob.LetterTypeDefinition?.DisplayName ?? string.Empty,
+                        ExcelUploadId = emailJob.ExcelUploadId,
+                        DocumentId = emailJob.DocumentId,
+                        DocumentName = emailJob.Document?.Template?.Name ?? string.Empty,
+                        Subject = emailJob.Subject,
+                        Content = emailJob.Content,
+                        Attachments = emailJob.Attachments,
+                        Status = emailJob.Status,
+                        ErrorMessage = emailJob.ErrorMessage,
+                        SendGridMessageId = emailJob.SendGridMessageId,
+                        SentBy = emailJob.SentBy,
+                        SentByName = emailJob.SentByUser?.Username ?? string.Empty,
+                        SentAt = emailJob.SentAt,
+                        CreatedAt = emailJob.CreatedAt,
+                        UpdatedAt = emailJob.UpdatedAt,
+                        RecipientEmail = emailJob.RecipientEmail,
+                        RecipientName = emailJob.RecipientName,
+                        UnsubscribedAt = emailJob.UnsubscribedAt,
+                        BouncedAt = emailJob.BouncedAt,
+                        DroppedAt = emailJob.DroppedAt,
+                        DeliveredAt = emailJob.DeliveredAt,
+                        OpenedAt = emailJob.OpenedAt,
+                        ClickedAt = emailJob.ClickedAt,
+                        ProcessedAt = emailJob.ProcessedAt
+                    };
+
+                    // Try to get employee info from dynamic table data if available
+                    if (emailJob.ExcelUploadId.HasValue && emailJob.ExcelUpload != null)
+                    {
+                        try
+                        {
+                            // Check cache first
+                            if (!dynamicTableDataCache.TryGetValue(emailJob.ExcelUploadId.Value, out var tableData))
+                            {
+                                var tableName = GetTableNameFromExcelUpload(emailJob.ExcelUpload);
+                                tableData = await dynamicTableService.GetDataFromDynamicTableAsync(tableName, 0, 1);
+                                dynamicTableDataCache[emailJob.ExcelUploadId.Value] = tableData;
+                            }
+
+                            if (tableData.Any())
+                            {
+                                var dataDict = tableData.First();
+                                ExtractEmployeeInfoFromData(dataDict, dto);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "⚠️ [EMAIL-MAPPING] Error getting dynamic table data for email job {EmailJobId}", emailJob.Id);
+                        }
+                    }
+
+                    result.Add(dto);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ [EMAIL-MAPPING] Error mapping email job {EmailJobId}", emailJob.Id);
+                    // Add a basic DTO even if mapping fails
+                    result.Add(new EmailJobDto
+                    {
+                        Id = emailJob.Id,
+                        LetterTypeDefinitionId = emailJob.LetterTypeDefinitionId,
+                        LetterTypeName = emailJob.LetterTypeDefinition?.DisplayName ?? string.Empty,
+                        ExcelUploadId = emailJob.ExcelUploadId,
+                        DocumentId = emailJob.DocumentId,
+                        Subject = emailJob.Subject,
+                        Content = emailJob.Content,
+                        Status = emailJob.Status,
+                        ErrorMessage = emailJob.ErrorMessage,
+                        SendGridMessageId = emailJob.SendGridMessageId,
+                        SentBy = emailJob.SentBy,
+                        SentByName = emailJob.SentByUser?.Username ?? string.Empty,
+                        SentAt = emailJob.SentAt,
+                        CreatedAt = emailJob.CreatedAt,
+                        UpdatedAt = emailJob.UpdatedAt,
+                        RecipientEmail = emailJob.RecipientEmail,
+                        RecipientName = emailJob.RecipientName
+                    });
+                }
+            }
+
+            _logger.LogInformation("✅ [EMAIL-MAPPING] Successfully mapped {Count} email jobs", result.Count);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [EMAIL-MAPPING] Error in batch mapping");
+            throw;
+        }
+    }
+
+    private void ExtractEmployeeInfoFromData(Dictionary<string, object> dataDict, EmailJobDto dto)
+    {
+        try
+        {
+            // Try common employee ID field names
+            var idFields = new[] { "employee_id", "employeeId", "EmployeeId", "emp_id", "EmpId", "id", "Id" };
+            foreach (var fieldName in idFields)
+            {
+                if (dataDict.TryGetValue(fieldName, out var idValue) && !string.IsNullOrEmpty(idValue?.ToString()))
+                {
+                    dto.EmployeeId = idValue.ToString()!;
+                    break;
+                }
+            }
+
+            // Try common name field names
+            var nameFields = new[] { "name", "Name", "full_name", "FullName", "recipient_name", "first_name", "last_name" };
+            var firstName = string.Empty;
+            var lastName = string.Empty;
+            
+            foreach (var fieldName in nameFields)
+            {
+                if (dataDict.TryGetValue(fieldName, out var nameValue) && !string.IsNullOrEmpty(nameValue?.ToString()))
+                {
+                    dto.EmployeeName = nameValue.ToString()!;
+                    break;
+                }
+            }
+
+            // Try first_name and last_name separately
+            if (string.IsNullOrEmpty(dto.EmployeeName))
+            {
+                if (dataDict.TryGetValue("first_name", out var firstNameValue) && !string.IsNullOrEmpty(firstNameValue?.ToString()))
+                {
+                    firstName = firstNameValue.ToString()!;
+                }
+                if (dataDict.TryGetValue("last_name", out var lastNameValue) && !string.IsNullOrEmpty(lastNameValue?.ToString()))
+                {
+                    lastName = lastNameValue.ToString()!;
+                }
+                if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
+                {
+                    dto.EmployeeName = $"{firstName} {lastName}".Trim();
+                }
+            }
+
+            // Try common email field names
+            var emailFields = new[] { "email", "Email", "email_address", "EmailAddress", "recipient_email", "employee_email" };
+            foreach (var fieldName in emailFields)
+            {
+                if (dataDict.TryGetValue(fieldName, out var emailValue) && !string.IsNullOrEmpty(emailValue?.ToString()))
+                {
+                    dto.EmployeeEmail = emailValue.ToString()!;
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ [EMAIL-MAPPING] Error extracting employee info from data");
+        }
+    }
+
     private async Task<EmailJobDto> MapToEmailJobDtoAsync(EmailJob emailJob)
     {
         // Extract employee information from dynamic table
@@ -689,6 +871,8 @@ public class EmailService : IEmailService
     {
         try
         {
+            _logger.LogInformation("📧 [EMAIL-JOBS] Getting email jobs with page {Page}, pageSize {PageSize}", request.Page, request.PageSize);
+            
             var query = _dbContext.EmailJobs.AsQueryable();
             
             if (!string.IsNullOrEmpty(request.Status))
@@ -706,27 +890,37 @@ public class EmailService : IEmailService
                 query = query.Where(e => e.CreatedAt <= request.ToDate.Value);
             }
 
-            var totalCount = await query.CountAsync();
+            // Limit the page size to prevent large queries
+            var pageSize = Math.Min(request.PageSize, 100);
+            var skip = (request.Page - 1) * pageSize;
+
+            _logger.LogInformation("📊 [EMAIL-JOBS] Querying {PageSize} records starting from {Skip}", pageSize, skip);
+
             var emailJobs = await query
-                .Skip((request.Page - 1) * request.PageSize)
-                .Take(request.PageSize)
+                .Skip(skip)
+                .Take(pageSize)
                 .Include(e => e.LetterTypeDefinition)
                 .Include(e => e.ExcelUpload)
                 .Include(e => e.Document)
                 .Include(e => e.SentByUser)
+                .OrderByDescending(e => e.CreatedAt)
                 .ToListAsync();
 
-            var result = new List<EmailJobDto>();
-            foreach (var job in emailJobs)
-            {
-                result.Add(await MapToEmailJobDtoAsync(job));
-            }
+            _logger.LogInformation("✅ [EMAIL-JOBS] Retrieved {Count} email jobs from database", emailJobs.Count);
 
+            // Optimize mapping by batching dynamic table queries with timeout
+            var result = await ExecuteWithTimeoutAsync(
+                () => MapEmailJobsToDtoBatchAsync(emailJobs),
+                TimeSpan.FromSeconds(25), // 25 second timeout
+                "Email jobs mapping"
+            );
+
+            _logger.LogInformation("✅ [EMAIL-JOBS] Successfully mapped {Count} email jobs to DTOs", result.Count());
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting email jobs");
+            _logger.LogError(ex, "❌ [EMAIL-JOBS] Error getting email jobs");
             throw;
         }
     }
@@ -1388,6 +1582,341 @@ public class EmailService : IEmailService
             _logger.LogError(ex, "❌ [EMPLOYEE_INFO] Error getting employee info for email job {EmailJobId}: {Message}", 
                 emailJob.Id, ex.Message);
             return (emailJob.RecipientName ?? "Unknown", emailJob.RecipientEmail ?? "");
+        }
+    }
+
+    public async Task<PaginatedResponse<EmailJobDto>> GetEmailHistoryAsync(string tabId, GetEmailHistoryRequest request)
+    {
+        try
+        {
+            var query = _dbContext.EmailJobs
+                .Include(ej => ej.LetterTypeDefinition)
+                .Include(ej => ej.SentByUser)
+                .AsQueryable();
+
+            // Filter by tab/letter type
+            if (Guid.TryParse(tabId, out var letterTypeId))
+            {
+                query = query.Where(ej => ej.LetterTypeDefinitionId == letterTypeId);
+            }
+
+            // Apply filters
+            if (!string.IsNullOrEmpty(request.Status))
+            {
+                query = query.Where(ej => ej.Status == request.Status);
+            }
+
+            if (!string.IsNullOrEmpty(request.SearchTerm))
+            {
+                var searchTerm = request.SearchTerm.ToLower();
+                query = query.Where(ej => 
+                    (ej.RecipientName != null && ej.RecipientName.ToLower().Contains(searchTerm)) ||
+                    (ej.RecipientEmail != null && ej.RecipientEmail.ToLower().Contains(searchTerm))
+                );
+            }
+
+            if (request.FromDate.HasValue)
+            {
+                query = query.Where(ej => ej.CreatedAt >= request.FromDate.Value);
+            }
+
+            if (request.ToDate.HasValue)
+            {
+                query = query.Where(ej => ej.CreatedAt <= request.ToDate.Value);
+            }
+
+            // Apply sorting
+            query = request.SortBy?.ToLower() switch
+            {
+                "createdat" => request.SortDirection == "asc" ? query.OrderBy(ej => ej.CreatedAt) : query.OrderByDescending(ej => ej.CreatedAt),
+                "status" => request.SortDirection == "asc" ? query.OrderBy(ej => ej.Status) : query.OrderByDescending(ej => ej.Status),
+                "recipientname" => request.SortDirection == "asc" ? query.OrderBy(ej => ej.RecipientName) : query.OrderByDescending(ej => ej.RecipientName),
+                "recipientemail" => request.SortDirection == "asc" ? query.OrderBy(ej => ej.RecipientEmail) : query.OrderByDescending(ej => ej.RecipientEmail),
+                _ => request.SortDirection == "asc" ? query.OrderBy(ej => ej.CreatedAt) : query.OrderByDescending(ej => ej.CreatedAt)
+            };
+
+            var totalCount = await query.CountAsync();
+            var emailJobs = await query
+                .Skip((request.Page - 1) * request.PageSize)
+                .Take(request.PageSize)
+                .ToListAsync();
+
+            var emails = new List<EmailJobDto>();
+            foreach (var job in emailJobs)
+            {
+                emails.Add(await MapToEmailJobDtoAsync(job));
+            }
+
+            return new PaginatedResponse<EmailJobDto>
+            {
+                Items = emails,
+                TotalCount = totalCount,
+                Page = request.Page,
+                PageSize = request.PageSize,
+                TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email history for tab: {TabId}", tabId);
+            throw;
+        }
+    }
+
+    public async Task<EmailStatsDto> GetEmailStatsAsync(string tabId)
+    {
+        try
+        {
+            var query = _dbContext.EmailJobs.AsQueryable();
+
+            // Filter by tab/letter type
+            if (Guid.TryParse(tabId, out var letterTypeId))
+            {
+                query = query.Where(ej => ej.LetterTypeDefinitionId == letterTypeId);
+            }
+
+            var now = DateTime.UtcNow;
+            var today = now.Date;
+            var weekStart = today.AddDays(-(int)today.DayOfWeek);
+            var monthStart = new DateTime(now.Year, now.Month, 1);
+
+            var totalEmails = await query.CountAsync();
+            var deliveredEmails = await query.CountAsync(ej => ej.Status == "delivered");
+            var pendingEmails = await query.CountAsync(ej => ej.Status == "pending");
+            var failedEmails = await query.CountAsync(ej => ej.Status == "bounced" || ej.Status == "dropped");
+            var bouncedEmails = await query.CountAsync(ej => ej.Status == "bounced");
+            var openedEmails = await query.CountAsync(ej => ej.Status == "opened");
+
+            var emailsToday = await query.CountAsync(ej => ej.CreatedAt >= today);
+            var emailsThisWeek = await query.CountAsync(ej => ej.CreatedAt >= weekStart);
+            var emailsThisMonth = await query.CountAsync(ej => ej.CreatedAt >= monthStart);
+
+            var successRate = totalEmails > 0 ? (double)deliveredEmails / totalEmails * 100 : 0;
+
+            // Calculate average delivery time
+            var deliveredEmailsWithTimes = await query
+                .Where(ej => ej.Status == "delivered" && ej.SentAt.HasValue)
+                .Select(ej => new { ej.CreatedAt, ej.SentAt })
+                .ToListAsync();
+
+            var averageDeliveryTime = deliveredEmailsWithTimes.Any() 
+                ? deliveredEmailsWithTimes.Average(ej => (ej.SentAt!.Value - ej.CreatedAt).TotalMinutes)
+                : 0;
+
+            // Status distribution
+            var statusDistribution = await query
+                .GroupBy(ej => ej.Status)
+                .ToDictionaryAsync(g => g.Key, g => g.Count());
+
+            // Hourly distribution (last 24 hours)
+            var hourlyDistribution = await query
+                .Where(ej => ej.CreatedAt >= now.AddHours(-24))
+                .GroupBy(ej => ej.CreatedAt.Hour)
+                .ToDictionaryAsync(g => g.Key.ToString(), g => g.Count());
+
+            // Daily distribution (last 30 days)
+            var dailyDistribution = await query
+                .Where(ej => ej.CreatedAt >= now.AddDays(-30))
+                .GroupBy(ej => ej.CreatedAt.Date)
+                .ToDictionaryAsync(g => g.Key.ToString("yyyy-MM-dd"), g => g.Count());
+
+            return new EmailStatsDto
+            {
+                TotalEmails = totalEmails,
+                DeliveredEmails = deliveredEmails,
+                PendingEmails = pendingEmails,
+                FailedEmails = failedEmails,
+                BouncedEmails = bouncedEmails,
+                OpenedEmails = openedEmails,
+                SuccessRate = successRate,
+                AverageDeliveryTime = averageDeliveryTime,
+                EmailsToday = emailsToday,
+                EmailsThisWeek = emailsThisWeek,
+                EmailsThisMonth = emailsThisMonth,
+                StatusDistribution = statusDistribution,
+                HourlyDistribution = hourlyDistribution,
+                DailyDistribution = dailyDistribution
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting email stats for tab: {TabId}", tabId);
+            throw;
+        }
+    }
+
+    public async Task<object> GetInsightsAsync(string tabId, string timeRange)
+    {
+        try
+        {
+            var query = _dbContext.EmailJobs.AsQueryable();
+
+            // Filter by tab/letter type
+            if (Guid.TryParse(tabId, out var letterTypeId))
+            {
+                query = query.Where(ej => ej.LetterTypeDefinitionId == letterTypeId);
+            }
+
+            // Apply time range filter
+            var now = DateTime.UtcNow;
+            var fromDate = timeRange switch
+            {
+                "7d" => now.AddDays(-7),
+                "30d" => now.AddDays(-30),
+                "90d" => now.AddDays(-90),
+                "1y" => now.AddDays(-365),
+                _ => now.AddDays(-30)
+            };
+
+            query = query.Where(ej => ej.CreatedAt >= fromDate);
+
+            var emails = await query.ToListAsync();
+
+            // Calculate insights
+            var totalEmails = emails.Count;
+            var deliveredEmails = emails.Count(ej => ej.Status == "delivered");
+            var pendingEmails = emails.Count(ej => ej.Status == "pending");
+            var failedEmails = emails.Count(ej => ej.Status == "bounced" || ej.Status == "dropped");
+            var successRate = totalEmails > 0 ? (double)deliveredEmails / totalEmails * 100 : 0;
+
+            // Calculate average delivery time
+            var deliveredEmailsWithTimes = emails
+                .Where(ej => ej.Status == "delivered" && ej.SentAt.HasValue)
+                .ToList();
+
+            var averageDeliveryTime = deliveredEmailsWithTimes.Any() 
+                ? deliveredEmailsWithTimes.Average(ej => (ej.SentAt!.Value - ej.CreatedAt).TotalMinutes)
+                : 0;
+
+            // Daily stats
+            var dailyStats = emails
+                .GroupBy(ej => ej.CreatedAt.Date)
+                .Select(g => new
+                {
+                    date = g.Key.ToString("yyyy-MM-dd"),
+                    sent = g.Count(),
+                    delivered = g.Count(ej => ej.Status == "delivered"),
+                    failed = g.Count(ej => ej.Status == "bounced" || ej.Status == "dropped")
+                })
+                .OrderBy(x => x.date)
+                .ToList();
+
+            // Hourly stats
+            var hourlyStats = emails
+                .GroupBy(ej => ej.CreatedAt.Hour)
+                .Select(g => new
+                {
+                    hour = g.Key,
+                    count = g.Count()
+                })
+                .OrderBy(x => x.hour)
+                .ToList();
+
+            // Status distribution
+            var statusDistribution = emails
+                .GroupBy(ej => ej.Status)
+                .Select(g => new
+                {
+                    status = g.Key,
+                    count = g.Count(),
+                    percentage = totalEmails > 0 ? (double)g.Count() / totalEmails * 100 : 0
+                })
+                .ToList();
+
+            // Top recipients
+            var topRecipients = emails
+                .GroupBy(ej => new { ej.RecipientEmail, ej.RecipientName })
+                .Select(g => new
+                {
+                    email = g.Key.RecipientEmail,
+                    name = g.Key.RecipientName,
+                    count = g.Count()
+                })
+                .OrderByDescending(x => x.count)
+                .Take(10)
+                .ToList();
+
+            // Calculate trends
+            var weeklyGrowth = 0.0;
+            var monthlyGrowth = 0.0;
+            var deliveryImprovement = 0.0;
+
+            if (timeRange == "30d")
+            {
+                var firstWeek = emails.Where(ej => ej.CreatedAt >= now.AddDays(-7)).Count();
+                var secondWeek = emails.Where(ej => ej.CreatedAt >= now.AddDays(-14) && ej.CreatedAt < now.AddDays(-7)).Count();
+                weeklyGrowth = secondWeek > 0 ? (double)(firstWeek - secondWeek) / secondWeek * 100 : 0;
+
+                var firstMonth = emails.Where(ej => ej.CreatedAt >= now.AddDays(-30)).Count();
+                var secondMonth = emails.Where(ej => ej.CreatedAt >= now.AddDays(-60) && ej.CreatedAt < now.AddDays(-30)).Count();
+                monthlyGrowth = secondMonth > 0 ? (double)(firstMonth - secondMonth) / secondMonth * 100 : 0;
+            }
+
+            return new
+            {
+                totalEmails,
+                deliveredEmails,
+                pendingEmails,
+                failedEmails,
+                successRate,
+                averageDeliveryTime,
+                dailyStats,
+                hourlyStats,
+                statusDistribution,
+                topRecipients,
+                trends = new
+                {
+                    weeklyGrowth,
+                    monthlyGrowth,
+                    deliveryImprovement
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting insights for tab: {TabId}", tabId);
+            throw;
+        }
+    }
+
+    public async Task<object> GetAnalyticsAsync(string tabId, string timeRange, string metric)
+    {
+        try
+        {
+            // This would be implemented based on specific analytics requirements
+            // For now, return basic analytics
+            var insights = await GetInsightsAsync(tabId, timeRange);
+            return insights;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting analytics for tab: {TabId}", tabId);
+            throw;
+        }
+    }
+
+    private async Task<T> ExecuteWithTimeoutAsync<T>(Func<Task<T>> operation, TimeSpan timeout, string operationName)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        try
+        {
+            _logger.LogDebug("⏱️ [TIMEOUT-WRAPPER] Starting {OperationName} with timeout {Timeout}ms", operationName, timeout.TotalMilliseconds);
+            
+            var task = operation();
+            var result = await task.WaitAsync(cts.Token);
+            
+            _logger.LogDebug("✅ [TIMEOUT-WRAPPER] {OperationName} completed successfully", operationName);
+            return result;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            _logger.LogWarning("⏰ [TIMEOUT-WRAPPER] {OperationName} timed out after {Timeout}ms", operationName, timeout.TotalMilliseconds);
+            throw new TimeoutException($"Operation '{operationName}' timed out after {timeout.TotalSeconds} seconds");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [TIMEOUT-WRAPPER] Error in {OperationName}: {Message}", operationName, ex.Message);
+            throw;
         }
     }
 }

@@ -882,19 +882,84 @@ class ApiService {
 
 
   async getDashboardStats(module: 'er' | 'billing'): Promise<ApiResponse<DashboardStats>> {
-    return this.request<ApiResponse<DashboardStats>>(`/dashboard/${module}/stats`);
+    const cacheKey = `dashboard:${module}`;
+    return await cacheService.getOrFetch(cacheKey, async () => {
+      return this.request<ApiResponse<DashboardStats>>(`/dashboard/${module}/stats`);
+    }, {
+      ttl: 5 * 60 * 1000, // 5 minutes
+      staleTtl: 15 * 60 * 1000, // 15 minutes
+      tags: ['dashboard', module],
+      revalidate: true
+    });
+  }
+
+  // Email History API
+  async getEmailHistory(tabId: string, params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+  } = {}): Promise<ApiResponse<{ items: any[]; total: number }>> {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.status) queryParams.append('status', params.status);
+    if (params.search) queryParams.append('search', params.search);
+
+    const cacheKey = `email_history:${tabId}:${JSON.stringify(params)}`;
+    return await cacheService.getOrFetch(cacheKey, async () => {
+      return this.request<ApiResponse<{ items: any[]; total: number }>>(`/api/email-history/${tabId}?${queryParams}`);
+    }, {
+      ttl: 5 * 60 * 1000, // 5 minutes
+      staleTtl: 15 * 60 * 1000, // 15 minutes
+      tags: ['email_history', tabId],
+      revalidate: true
+    });
+  }
+
+  // Insights API
+  async getInsights(tabId: string, params: {
+    timeRange?: string;
+  } = {}): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams();
+    if (params.timeRange) queryParams.append('timeRange', params.timeRange);
+
+    const cacheKey = `insights:${tabId}:${params.timeRange || 'default'}`;
+    return await cacheService.getOrFetch(cacheKey, async () => {
+      return this.request<ApiResponse<any>>(`/api/insights/${tabId}?${queryParams}`);
+    }, {
+      ttl: 10 * 60 * 1000, // 10 minutes
+      staleTtl: 30 * 60 * 1000, // 30 minutes
+      tags: ['insights', tabId],
+      revalidate: true
+    });
   }
 
   // User Management APIs
   async getUsers(): Promise<ApiResponse<UserRole[]>> {
-    return this.request<ApiResponse<UserRole[]>>('/admin/users');
+    const cacheKey = 'users:all';
+    return await cacheService.getOrFetch(cacheKey, async () => {
+      return this.request<ApiResponse<UserRole[]>>('/admin/users');
+    }, {
+      ttl: 10 * 60 * 1000, // 10 minutes
+      staleTtl: 30 * 60 * 1000, // 30 minutes
+      tags: ['users'],
+      revalidate: true
+    });
   }
 
   async createUser(user: CreateUserRequest): Promise<ApiResponse<UserRole>> {
-    return this.request<ApiResponse<UserRole>>('/admin/users', {
+    const response = await this.request<ApiResponse<UserRole>>('/admin/users', {
       method: 'POST',
       body: JSON.stringify(user),
     });
+    
+    // Invalidate user cache on create
+    if (response.success) {
+      cacheService.invalidateByTag('users');
+    }
+    
+    return response;
   }
 
   async updateUser(id: string, user: UpdateUserRequest): Promise<ApiResponse<UserRole>> {
