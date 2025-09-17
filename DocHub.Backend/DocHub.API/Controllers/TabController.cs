@@ -65,7 +65,7 @@ public class TabController : ControllerBase
 
             // Check department access
             var currentUserId = GetCurrentUserId();
-            var hasAccess = await _departmentAccessService.HasAccessToTabAsync(Guid.Parse(currentUserId), tabGuid);
+            var hasAccess = await _departmentAccessService.UserCanAccessTab(Guid.Parse(currentUserId), tabGuid);
             if (!hasAccess)
             {
                 return Forbid();
@@ -773,7 +773,7 @@ public class TabController : ControllerBase
             }
 
             var currentUserId = GetCurrentUserId();
-            var hasAccess = await _departmentAccessService.HasAccessToTabAsync(Guid.Parse(currentUserId), tabGuid);
+            var hasAccess = await _departmentAccessService.UserCanAccessTab(Guid.Parse(currentUserId), tabGuid);
             if (!hasAccess)
             {
                 return Forbid();

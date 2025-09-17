@@ -33,8 +33,8 @@ public class DepartmentAccessService : IDepartmentAccessService
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) return false;
 
-            // SuperAdmin and Admin can access all departments
-            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin"))
+            // SuperAdmin and Admin or users with no department restriction can access all departments
+            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin") || string.IsNullOrEmpty(user.Department))
             {
                 return true;
             }
@@ -64,8 +64,8 @@ public class DepartmentAccessService : IDepartmentAccessService
 
             _logger.LogInformation("👤 [DEPT-ACCESS] User department: {UserDepartment}", user.Department);
 
-            // SuperAdmin and Admin can access all tabs
-            var isAdmin = await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin");
+            // SuperAdmin and Admin or users with no department restriction can access all tabs
+            var isAdmin = await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin") || string.IsNullOrEmpty(user.Department);
             _logger.LogInformation("🔐 [DEPT-ACCESS] User is admin: {IsAdmin}", isAdmin);
             
             if (isAdmin)
@@ -113,9 +113,9 @@ public class DepartmentAccessService : IDepartmentAccessService
                     .ToListAsync();
             }
 
-            // Regular users can only access tabs from their department
+            // Regular users can only access tabs from their department (or tabs without a department)
             return await _dbContext.LetterTypeDefinitions
-                .Where(lt => lt.IsActive && (lt.Department == null || lt.Department == "" || lt.Department.ToLower() == user.Department.ToLower()))
+                .Where(lt => lt.IsActive && (string.IsNullOrEmpty(lt.Department) || lt.Department.ToLower() == user.Department.ToLower()))
                 .Select(lt => lt.Id)
                 .ToListAsync();
         }
@@ -133,8 +133,8 @@ public class DepartmentAccessService : IDepartmentAccessService
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) return new List<string>();
 
-            // SuperAdmin and Admin can access all departments
-            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin"))
+            // SuperAdmin and Admin or users with no department restriction can access all departments
+            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin") || string.IsNullOrEmpty(user.Department))
             {
                 return new List<string> { "ER", "Billing" };
             }
@@ -156,8 +156,8 @@ public class DepartmentAccessService : IDepartmentAccessService
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) return false;
 
-            // SuperAdmin and Admin are considered to be in all departments
-            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin"))
+            // SuperAdmin and Admin or users with no department restriction are considered to be in all departments
+            if (await UserHasRoleAsync(userId, "SuperAdmin") || await UserHasRoleAsync(userId, "Admin") || string.IsNullOrEmpty(user.Department))
             {
                 return true;
             }

@@ -269,8 +269,8 @@ public class ExcelProcessingService : IExcelProcessingService
             // Generate Excel template with headers
             var headers = dynamicFields.Select(f => f.DisplayName).ToList();
             var sampleData = GenerateSampleData(dynamicFields, 5); // 5 sample rows
-
-            // Create Excel file (simplified - in real implementation, use EPPlus or similar)
+            
+            // Create Excel file using Syncfusion
             var templateData = CreateExcelTemplate(headers, sampleData);
             var stream = new MemoryStream(templateData);
 
@@ -642,9 +642,9 @@ public class ExcelProcessingService : IExcelProcessingService
                 string headerValue;
                 
                 // Try to get the actual value first, then fall back to text
-                if (cell.Value2 != null)
+                if (cell.Value != null)
                 {
-                    headerValue = cell.Value2.ToString()?.Trim() ?? string.Empty;
+                    headerValue = cell.Value.ToString()?.Trim() ?? string.Empty;
                 }
                 else if (!string.IsNullOrEmpty(cell.Text))
                 {
@@ -672,9 +672,9 @@ public class ExcelProcessingService : IExcelProcessingService
                     object cellValue;
                     
                     // Try to get the actual value first, then fall back to text
-                    if (cell.Value2 != null)
+                    if (cell.Value != null)
                     {
-                        cellValue = cell.Value2;
+                        cellValue = cell.Value;
                     }
                     else if (!string.IsNullOrEmpty(cell.Text))
                     {

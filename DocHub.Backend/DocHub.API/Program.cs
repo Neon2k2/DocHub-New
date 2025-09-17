@@ -66,7 +66,7 @@ Console.WriteLine("🔧 [STARTUP] EmailStatusPollingService registered as backgr
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT Secret not configured");
+var secretKey = jwtSettings["Secret"] ?? jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT Secret not configured");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -192,7 +192,7 @@ try
                 LastName = "User",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
                 IsActive = true,
-                Department = "ER", // Set department for admin
+                Department = string.Empty, // No department restriction for admin
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -245,12 +245,12 @@ try
                     }
                 }
                 
-                // Update admin user department if it's empty
-                if (string.IsNullOrEmpty(adminUser.Department))
+                // Ensure admin user has no department restriction
+                if (!string.IsNullOrEmpty(adminUser.Department))
                 {
-                    adminUser.Department = "ER";
+                    adminUser.Department = string.Empty;
                     await context.SaveChangesAsync();
-                    logger.LogInformation("✅ [STARTUP] Updated admin user department to ER");
+                    logger.LogInformation("✅ [STARTUP] Cleared admin user department to allow full access");
                 }
             }
         }

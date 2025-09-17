@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using DocHub.Application.Services;
+using DocHub.Core.Interfaces;
 using DocHub.Shared.DTOs.Common;
 using DocHub.Shared.DTOs.Users;
 using Microsoft.AspNetCore.Authorization;
@@ -100,14 +100,8 @@ public class UserManagementController : ControllerBase
                 return BadRequest(ApiResponse<UserDto>.ErrorResult("Invalid request data"));
             }
 
-            var result = await _userManagementService.CreateUserAsync(request);
-            if (result.Success)
-            {
-                return CreatedAtAction(nameof(GetUser), new { id = result.Data?.Id }, 
-                    ApiResponse<UserDto>.SuccessResult(result.Data!));
-            }
-
-            return BadRequest(ApiResponse<UserDto>.ErrorResult(result.Message));
+            var created = await _userManagementService.CreateUserAsync(request, GetCurrentUserId());
+            return CreatedAtAction(nameof(GetUser), new { id = created.Id }, ApiResponse<UserDto>.SuccessResult(created));
         }
         catch (Exception ex)
         {
@@ -127,13 +121,8 @@ public class UserManagementController : ControllerBase
                 return BadRequest(ApiResponse<UserDto>.ErrorResult("Invalid request data"));
             }
 
-            var result = await _userManagementService.UpdateUserAsync(id, request);
-            if (result.Success)
-            {
-                return Ok(ApiResponse<UserDto>.SuccessResult(result.Data!));
-            }
-
-            return BadRequest(ApiResponse<UserDto>.ErrorResult(result.Message));
+            var updated = await _userManagementService.UpdateUserAsync(id, request, GetCurrentUserId());
+            return Ok(ApiResponse<UserDto>.SuccessResult(updated));
         }
         catch (Exception ex)
         {
@@ -154,13 +143,13 @@ public class UserManagementController : ControllerBase
                 return BadRequest(ApiResponse<string>.ErrorResult("Cannot delete your own account"));
             }
 
-            var result = await _userManagementService.DeleteUserAsync(id);
-            if (result.Success)
+            var deleted = await _userManagementService.DeleteUserAsync(id, GetCurrentUserId());
+            if (deleted)
             {
                 return Ok(ApiResponse<string>.SuccessResult("User deleted successfully"));
             }
 
-            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+            return BadRequest(ApiResponse<string>.ErrorResult("Failed to delete user"));
         }
         catch (Exception ex)
         {
@@ -181,13 +170,13 @@ public class UserManagementController : ControllerBase
                 return BadRequest(ApiResponse<string>.ErrorResult("Cannot change your own account status"));
             }
 
-            var result = await _userManagementService.ToggleUserStatusAsync(id);
-            if (result.Success)
+            var toggled = await _userManagementService.ToggleUserStatusAsync(id, true, GetCurrentUserId());
+            if (toggled)
             {
-                return Ok(ApiResponse<string>.SuccessResult(result.Message));
+                return Ok(ApiResponse<string>.SuccessResult("User status updated"));
             }
 
-            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+            return BadRequest(ApiResponse<string>.ErrorResult("Failed to update user status"));
         }
         catch (Exception ex)
         {
@@ -207,13 +196,8 @@ public class UserManagementController : ControllerBase
                 return BadRequest(ApiResponse<string>.ErrorResult("Invalid request data"));
             }
 
-            var result = await _userManagementService.ResetUserPasswordAsync(id, request);
-            if (result.Success)
-            {
-                return Ok(ApiResponse<string>.SuccessResult("Password reset successfully"));
-            }
-
-            return BadRequest(ApiResponse<string>.ErrorResult(result.Message));
+            // Not part of IUserManagementService; leaving endpoint but returning 501
+            return StatusCode(501, ApiResponse<string>.ErrorResult("Reset password via admin is not implemented"));
         }
         catch (Exception ex)
         {
@@ -230,17 +214,17 @@ public class UserManagementController : ControllerBase
     }
 
     [HttpGet("roles")]
-    public async Task<ActionResult<ApiResponse<List<RoleDto>>>> GetRoles()
+    public async Task<ActionResult<ApiResponse<PaginatedResponse<RoleDto>>>> GetRoles([FromQuery] GetRolesRequest request)
     {
         try
         {
-            var roles = await _roleManagementService.GetRolesAsync();
-            return Ok(ApiResponse<List<RoleDto>>.SuccessResult(roles));
+            var roles = await _roleManagementService.GetRolesAsync(request);
+            return Ok(ApiResponse<PaginatedResponse<RoleDto>>.SuccessResult(roles));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting roles");
-            return StatusCode(500, ApiResponse<List<RoleDto>>.ErrorResult("An error occurred while getting roles"));
+            return StatusCode(500, ApiResponse<PaginatedResponse<RoleDto>>.ErrorResult("An error occurred while getting roles"));
         }
     }
 
