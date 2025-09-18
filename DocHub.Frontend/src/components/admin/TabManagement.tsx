@@ -456,15 +456,8 @@ export function TabManagement() {
             </DialogTrigger>
             <DialogContent className="dialog-panel max-w-4xl max-h-[70vh] overflow-hidden">
               <DialogHeader>
-                <DialogTitle className="flex items-center justify-between">
-                  <span>Create New Tab</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowCreateDialog(false)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                <DialogTitle>
+                  Create New Tab
                 </DialogTitle>
                 <DialogDescription>
                   Create a new letter type tab with custom fields

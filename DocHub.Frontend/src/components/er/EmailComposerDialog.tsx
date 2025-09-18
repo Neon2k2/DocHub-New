@@ -14,6 +14,8 @@ import { Label } from '../ui/label';
 import { Progress } from '../ui/progress';
 import { documentService, EmailJob, EmailAttachment, Signature } from '../../services/document.service';
 import { Employee, apiService } from '../../services/api.service';
+import { useAuth } from '../../contexts/AuthContext';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 
 interface EmailComposerDialogProps {
   open: boolean;
@@ -35,6 +37,18 @@ export function EmailComposerDialog({
   employees,
   onEmailsSent
 }: EmailComposerDialogProps) {
+  const { hasPermission } = useAuth();
+  
+  // Check if user has permission to send emails
+  if (!hasPermission('canAccessER')) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl">
+          <UnauthorizedPage module="Email Composer" />
+        </DialogContent>
+      </Dialog>
+    );
+  }
   const [templates, setTemplates] = useState<any[]>([]);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -90,11 +104,18 @@ export function EmailComposerDialog({
     const template = templates.find(t => t.id === templateId);
     
     if (template) {
-      const updatedData = emailData.map(data => ({
-        ...data,
-        subject: replacePlaceholders(template.subject, data.employee),
-        content: replacePlaceholders(template.content, data.employee)
-      }));
+      const updatedData = emailData.map((data, index) => {
+        // Check if content has been manually modified by comparing with template
+        const isContentModified = data.content !== replacePlaceholders(template.content, data.employee);
+        const isSubjectModified = data.subject !== replacePlaceholders(template.subject, data.employee);
+        
+        return {
+          ...data,
+          // Only update if not manually modified
+          subject: isSubjectModified ? data.subject : replacePlaceholders(template.subject, data.employee),
+          content: isContentModified ? data.content : replacePlaceholders(template.content, data.employee)
+        };
+      });
       setEmailData(updatedData);
     }
   };
@@ -120,7 +141,7 @@ export function EmailComposerDialog({
 
     setUploadingAttachment(true);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of Array.from(files) as File[]) {
         const attachment: EmailAttachment = {
           id: Date.now().toString() + Math.random(),
           fileName: file.name,
@@ -165,21 +186,16 @@ export function EmailComposerDialog({
     setActiveTab('sending');
 
     try {
-      // Use the new bulk email API
-      const response = await apiService.sendBulkEmails({
-        employees: emailData.map(data => ({
-          employeeId: data.employee.id,
-          employeeName: data.employee.name,
-          employeeEmail: data.employee.email,
-          documentId: 'DOC_' + Date.now() + '_' + data.employee.id
-        })),
+      // Send individual emails using the sendEmail API
+      const response = await apiService.sendEmail({
+        to: emailData.map(data => data.employee.email).filter(email => email),
         subject: emailData[0]?.subject || 'Document Email',
         body: emailData[0]?.content || 'Please find attached your document.',
         attachments: emailData.flatMap(data => data.attachments.map(att => att.fileUrl)),
-        emailTemplateId: selectedTemplateId || undefined
+        templateId: selectedTemplateId || undefined
       });
 
-      if (response.success && response.data) {
+      if (response.success) {
         // Create mock email jobs for display
         const jobs: EmailJob[] = emailData.map((data, index) => ({
           id: `job_${Date.now()}_${index}`,
@@ -191,7 +207,7 @@ export function EmailComposerDialog({
           subject: data.subject,
           content: data.content,
           attachments: data.attachments,
-          status: response.data.successfulJobs > index ? 'sent' : 'failed',
+          status: 'sent' as const,
           sentBy: 'Current User',
           createdAt: new Date(),
           sentAt: new Date()

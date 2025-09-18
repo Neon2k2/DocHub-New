@@ -37,10 +37,31 @@ public class RoleManagementService : IRoleManagementService
     {
         try
         {
+            _logger.LogInformation("🔍 [ROLE-SERVICE] Starting GetRolesAsync with request: {@Request}", request);
+            
+            // Debug: Check if DbContext is null
+            if (_dbContext == null)
+            {
+                _logger.LogError("❌ [ROLE-SERVICE] DbContext is null!");
+                throw new InvalidOperationException("DbContext is not available");
+            }
+
+            // Debug: Check if Roles DbSet is null
+            if (_dbContext.Roles == null)
+            {
+                _logger.LogError("❌ [ROLE-SERVICE] DbContext.Roles is null!");
+                throw new InvalidOperationException("Roles DbSet is not available");
+            }
+
+            _logger.LogInformation("🔍 [ROLE-SERVICE] DbContext and Roles DbSet are available, building query...");
+            
             var query = _dbContext.Roles
                 .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
+                .Include(r => r.UserRoles)
                 .AsQueryable();
+                
+            _logger.LogInformation("🔍 [ROLE-SERVICE] Query built successfully, applying filters...");
 
             // Apply filters
             if (!string.IsNullOrEmpty(request.SearchTerm))
@@ -63,8 +84,13 @@ public class RoleManagementService : IRoleManagementService
                 _ => query.OrderBy(r => r.Name)
             };
 
+            _logger.LogInformation("🔍 [ROLE-SERVICE] Executing count query...");
             var totalCount = await query.CountAsync();
+            _logger.LogInformation("📊 [ROLE-SERVICE] Total roles count: {Count}", totalCount);
 
+            _logger.LogInformation("🔍 [ROLE-SERVICE] Executing paginated query with Skip={Skip}, Take={Take}...", 
+                (request.Page - 1) * request.PageSize, request.PageSize);
+                
             var roles = await query
                 .Skip((request.Page - 1) * request.PageSize)
                 .Take(request.PageSize)
@@ -78,7 +104,7 @@ public class RoleManagementService : IRoleManagementService
                     CreatedAt = r.CreatedAt,
                     UpdatedAt = r.UpdatedAt,
                     UserCount = r.UserRoles.Count(ur => !ur.IsExpired),
-                    Permissions = r.RolePermissions.Select(rp => new PermissionDto
+                    Permissions = r.RolePermissions.Where(rp => rp.Permission != null).Select(rp => new PermissionDto
                     {
                         Id = rp.Permission.Id,
                         Name = rp.Permission.Name,
@@ -89,7 +115,9 @@ public class RoleManagementService : IRoleManagementService
                 })
                 .ToListAsync();
 
-            return new PaginatedResponse<RoleDto>
+            _logger.LogInformation("📊 [ROLE-SERVICE] Retrieved {Count} roles from database", roles.Count);
+
+            var result = new PaginatedResponse<RoleDto>
             {
                 Items = roles,
                 TotalCount = totalCount,
@@ -97,6 +125,9 @@ public class RoleManagementService : IRoleManagementService
                 PageSize = request.PageSize,
                 TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
             };
+            
+            _logger.LogInformation("✅ [ROLE-SERVICE] Successfully created paginated response");
+            return result;
         }
         catch (Exception ex)
         {
@@ -112,6 +143,7 @@ public class RoleManagementService : IRoleManagementService
             var role = await _dbContext.Roles
                 .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
+                .Include(r => r.UserRoles)
                 .FirstOrDefaultAsync(r => r.Id == roleId);
 
             if (role == null) return null;

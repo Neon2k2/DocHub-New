@@ -441,6 +441,7 @@ public class ExcelController : ControllerBase
     }
 
     [HttpPost("templates")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ExcelTemplateDto>> CreateExcelTemplate([FromBody] CreateExcelTemplateRequest request)
     {
         try
@@ -466,6 +467,7 @@ public class ExcelController : ControllerBase
     }
 
     [HttpPut("templates/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ExcelTemplateDto>> UpdateExcelTemplate(Guid id, [FromBody] UpdateExcelTemplateRequest request)
     {
         try
@@ -491,6 +493,7 @@ public class ExcelController : ControllerBase
     }
 
     [HttpDelete("templates/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> DeleteExcelTemplate(Guid id)
     {
         try

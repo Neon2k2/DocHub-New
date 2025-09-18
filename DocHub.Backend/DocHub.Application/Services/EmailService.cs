@@ -374,7 +374,7 @@ public class EmailService : IEmailService
                 From = new SendGrid.Helpers.Mail.EmailAddress(fromEmail, fromName),
                 Subject = emailJob.Subject,
                 PlainTextContent = StripHtml(emailJob.Content),
-                HtmlContent = emailJob.Content
+                HtmlContent = ConvertPlainTextToHtml(emailJob.Content)
             };
 
             message.AddTo(new SendGrid.Helpers.Mail.EmailAddress(toEmail, toName));
@@ -455,6 +455,26 @@ public class EmailService : IEmailService
         if (string.IsNullOrEmpty(input)) return string.Empty;
         
         return System.Text.RegularExpressions.Regex.Replace(input, "<.*?>", string.Empty);
+    }
+
+    private string ConvertPlainTextToHtml(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        
+        // If input already contains HTML tags, return as-is
+        if (input.Contains("<") && input.Contains(">"))
+        {
+            return input;
+        }
+        
+        // Convert plain text to HTML
+        return input
+            .Replace("&", "&amp;")      // Escape ampersands first
+            .Replace("<", "&lt;")       // Escape less-than
+            .Replace(">", "&gt;")       // Escape greater-than
+            .Replace("\r\n", "<br>")    // Convert Windows line breaks
+            .Replace("\n", "<br>")      // Convert Unix line breaks
+            .Replace("\r", "<br>");     // Convert Mac line breaks
     }
 
     private async Task UpdateEmailStatusFromWebhookAsync(EmailJob emailJob, string? eventType, Dictionary<string, object> payload)

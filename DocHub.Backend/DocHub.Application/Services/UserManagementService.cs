@@ -86,12 +86,13 @@ public class UserManagementService : IUserManagementService
                 var users = await query
                     .Skip((request.Page - 1) * request.PageSize)
                     .Take(request.PageSize)
-                    .Select(u => MapToUserDto(u))
                     .ToListAsync();
+
+                var userDtos = users.Select(u => MapToUserDto(u)).ToList();
 
                 return new PaginatedResponse<UserDto>
                 {
-                    Items = users,
+                    Items = userDtos,
                     TotalCount = totalCount,
                     Page = request.Page,
                     PageSize = request.PageSize,
@@ -555,10 +556,10 @@ public class UserManagementService : IUserManagementService
                 .ThenInclude(ur => ur.Role)
                 .OrderByDescending(u => u.CreatedAt)
                 .Take(count)
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -575,10 +576,10 @@ public class UserManagementService : IUserManagementService
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                 .Where(u => u.UserRoles.Any(ur => ur.Role.Name == role))
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -595,10 +596,10 @@ public class UserManagementService : IUserManagementService
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                 .Where(u => u.Department == department)
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -624,10 +625,11 @@ public class UserManagementService : IUserManagementService
                     (u.EmployeeId != null && u.EmployeeId.ToLower().Contains(searchLower))
                 )
                 .Take(limit)
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -645,10 +647,11 @@ public class UserManagementService : IUserManagementService
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                 .Where(u => u.LastLoginAt == null || u.LastLoginAt < cutoffDate)
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -665,10 +668,10 @@ public class UserManagementService : IUserManagementService
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                 .Where(u => u.CreatedAt >= startDate && u.CreatedAt <= endDate)
-                .Select(u => MapToUserDto(u))
                 .ToListAsync();
 
-            return users;
+            var userDtos = users.Select(u => MapToUserDto(u)).ToList();
+            return userDtos;
         }
         catch (Exception ex)
         {
@@ -1026,44 +1029,77 @@ public class UserManagementService : IUserManagementService
 
     private UserDto MapToUserDto(User user)
     {
-        return new UserDto
+        try
         {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            FirstName = user.FirstName,
-            LastName = user.LastName,
-            PhoneNumber = user.PhoneNumber,
-            Department = user.Department,
-            EmployeeId = user.EmployeeId,
-            JobTitle = user.JobTitle,
-            Address = user.Address,
-            City = user.City,
-            State = user.State,
-            ZipCode = user.ZipCode,
-            Country = user.Country,
-            IsActive = user.IsActive,
-            IsEmailVerified = user.IsEmailVerified,
-            IsPhoneVerified = user.IsPhoneVerified,
-            ProfileImageUrl = user.ProfileImageUrl,
-            CreatedAt = user.CreatedAt,
-            UpdatedAt = user.UpdatedAt,
-            LastLoginAt = user.LastLoginAt,
-            PasswordChangedAt = user.PasswordChangedAt,
-            EmailVerifiedAt = user.EmailVerifiedAt,
-            PhoneVerifiedAt = user.PhoneVerifiedAt,
-            Roles = user.UserRoles?.Select(ur => ur.Role.Name).ToList() ?? new List<string>(),
-            Permissions = new UserPermissionsDto
+            _logger.LogInformation("🔍 [MAP-USER] Mapping user: {Username}, UserRoles count: {Count}", 
+                user.Username, user.UserRoles?.Count ?? 0);
+            
+            if (user.UserRoles != null)
             {
-                IsAdmin = user.UserRoles?.Any(ur => ur.Role.Name == "Admin") ?? false,
-                CanAccessER = user.UserRoles?.Any(ur => ur.Role.Name == "Admin" || ur.Role.Name == "ER") ?? false,
-                CanAccessBilling = user.UserRoles?.Any(ur => ur.Role.Name == "Admin" || ur.Role.Name == "Billing") ?? false,
-                CanManageUsers = user.UserRoles?.Any(ur => ur.Role.Name == "Admin") ?? false,
-                CanManageRoles = user.UserRoles?.Any(ur => ur.Role.Name == "Admin") ?? false,
-                CanViewAuditLogs = user.UserRoles?.Any(ur => ur.Role.Name == "Admin") ?? false,
-                CanManageSystemSettings = user.UserRoles?.Any(ur => ur.Role.Name == "Admin") ?? false
+                foreach (var userRole in user.UserRoles)
+                {
+                    _logger.LogInformation("🔍 [MAP-USER] UserRole: {RoleName}, RoleId: {RoleId}", 
+                        userRole.Role?.Name, userRole.RoleId);
+                }
             }
-        };
+            else
+            {
+                _logger.LogWarning("⚠️ [MAP-USER] UserRoles is null for user: {Username}", user.Username);
+            }
+
+            var roles = user.UserRoles?.Select(ur => ur.Role?.Name)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Cast<string>()
+                .ToList() ?? new List<string>();
+            var isAdmin = user.UserRoles?.Any(ur => ur.Role?.Name == "Admin") ?? false;
+            
+            _logger.LogInformation("🔍 [MAP-USER] Mapped roles: {Roles}, IsAdmin: {IsAdmin}", 
+                string.Join(", ", roles), isAdmin);
+
+            return new UserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                PhoneNumber = user.PhoneNumber,
+                Department = user.Department,
+                EmployeeId = user.EmployeeId,
+                JobTitle = user.JobTitle,
+                Address = user.Address,
+                City = user.City,
+                State = user.State,
+                ZipCode = user.ZipCode,
+                Country = user.Country,
+                IsActive = user.IsActive,
+                IsEmailVerified = user.IsEmailVerified,
+                IsPhoneVerified = user.IsPhoneVerified,
+                ProfileImageUrl = user.ProfileImageUrl,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt,
+                LastLoginAt = user.LastLoginAt,
+                PasswordChangedAt = user.PasswordChangedAt,
+                EmailVerifiedAt = user.EmailVerifiedAt,
+                PhoneVerifiedAt = user.PhoneVerifiedAt,
+                Roles = roles,
+                Permissions = new UserPermissionsDto
+                {
+                    IsAdmin = isAdmin,
+                    CanAccessER = isAdmin || user.Department?.ToLower() == "er",
+                    CanAccessBilling = isAdmin || user.Department?.ToLower() == "billing",
+                    CanManageUsers = isAdmin,
+                    CanManageRoles = isAdmin,
+                    CanViewAuditLogs = isAdmin,
+                    CanManageSystemSettings = isAdmin
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ [MAP-USER] Error mapping user: {Username}", user.Username);
+            throw;
+        }
     }
 
     private string HashPassword(string password)

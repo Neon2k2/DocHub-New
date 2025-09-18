@@ -49,19 +49,3 @@ public interface IRoleManagementService
     Task<bool> AssignDefaultPermissionsToRolesAsync();
 }
 
-// Additional request DTOs
-public class CreatePermissionRequest
-{
-    public string Name { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public string Category { get; set; } = string.Empty;
-    public bool IsActive { get; set; } = true;
-}
-
-public class UpdatePermissionRequest
-{
-    public string? Name { get; set; }
-    public string? Description { get; set; }
-    public string? Category { get; set; }
-    public bool? IsActive { get; set; }
-}

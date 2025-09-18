@@ -55,4 +55,7 @@ public interface ISessionManagementService
     Task<List<UserSessionDto>> GetConcurrentSessionsAsync(Guid userId);
     Task<bool> EnforceSessionLimitAsync(Guid userId, int maxSessions = 5);
     Task<List<UserSessionDto>> GetSessionsByTimeRangeAsync(DateTime startTime, DateTime endTime);
+
+    // Login History
+    Task<List<LoginHistoryDto>> GetUserLoginHistoryAsync(Guid userId, int page = 1, int pageSize = 20);
 }

@@ -128,6 +128,7 @@ public class FileController : ControllerBase
     }
 
     [HttpPost("templates")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DocumentTemplateDto>> UploadTemplate([FromForm] UploadTemplateRequest request)
     {
         try
@@ -187,6 +188,7 @@ public class FileController : ControllerBase
     }
 
     [HttpDelete("templates/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> DeleteTemplate(Guid id)
     {
         try
@@ -285,6 +287,7 @@ public class FileController : ControllerBase
     }
 
     [HttpDelete("signatures/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> DeleteSignature(Guid id)
     {
         try

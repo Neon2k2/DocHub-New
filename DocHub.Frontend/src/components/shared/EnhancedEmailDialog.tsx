@@ -88,7 +88,10 @@ export function EnhancedEmailDialog({
     }
 
     return () => {
-      signalRService.offEmailStatusUpdated();
+      if ((signalRService as any).emailStatusCallback) {
+        signalRService.offEmailStatusUpdated((signalRService as any).emailStatusCallback);
+        (signalRService as any).emailStatusCallback = null;
+      }
     };
   }, [open]);
 
@@ -111,7 +114,7 @@ export function EnhancedEmailDialog({
     try {
       await signalRService.start();
       
-      signalRService.onEmailStatusUpdated((update: EmailStatusUpdate) => {
+      const emailStatusCallback = (update: EmailStatusUpdate) => {
         console.log('📧 [ENHANCED-EMAIL] Received email status update:', update);
         
         // Update the sent jobs with new status
@@ -125,7 +128,12 @@ export function EnhancedEmailDialog({
         if (update.status !== 'pending') {
           toast.success(`Email status updated to ${update.status} for ${update.employeeName || 'employee'}`);
         }
-      });
+      };
+      
+      signalRService.onEmailStatusUpdated(emailStatusCallback);
+      
+      // Store callback reference for cleanup
+      (signalRService as any).emailStatusCallback = emailStatusCallback;
       
       // Join user group for real-time updates
       if (user?.id) {
@@ -212,8 +220,36 @@ export function EnhancedEmailDialog({
     if (template) {
       const updatedData = [...emailData];
       updatedData[employeeIndex].selectedTemplate = template;
-      updatedData[employeeIndex].subject = replacePlaceholders(template.name, updatedData[employeeIndex].employee);
-      updatedData[employeeIndex].content = replacePlaceholders(template.description || '', updatedData[employeeIndex].employee);
+      
+      // Document templates are for PDF generation only - preserve email content
+      // Only update if the current content is still the default template content
+      const currentData = updatedData[employeeIndex];
+      const employee = currentData.employee;
+      
+      // Check if current content is still the default email template content
+      const defaultContent = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
+      const processedDefaultContent = defaultContent
+        .replace(/\{employeeName\}/g, employee.name || 'Employee')
+        .replace(/\{employeeEmail\}/g, employee.email || '')
+        .replace(/\{employeeId\}/g, employee.employeeId || '')
+        .replace(/\{department\}/g, employee.department || '')
+        .replace(/\{designation\}/g, employee.designation || '')
+        .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+        .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+      
+      const defaultSubject = emailTemplateSubject || `Document Request - ${employee.name}`;
+      const processedDefaultSubject = defaultSubject
+        .replace(/\{employeeName\}/g, employee.name || 'Employee')
+        .replace(/\{employeeEmail\}/g, employee.email || '')
+        .replace(/\{employeeId\}/g, employee.employeeId || '')
+        .replace(/\{department\}/g, employee.department || '')
+        .replace(/\{designation\}/g, employee.designation || '')
+        .replace(/\{firstName\}/g, employee.firstName || employee.name?.split(' ')[0] || '')
+        .replace(/\{lastName\}/g, employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '');
+      
+      // Only preserve the email template content - don't replace with document template content
+      // The document template is only used for PDF generation
+      
       setEmailData(updatedData);
     }
   };
@@ -248,8 +284,10 @@ export function EnhancedEmailDialog({
     const currentData = emailData[employeeIndex];
     if (!currentData || !employee) return false;
 
-    // Check if content differs from template
+    // Check if content differs from the email template (not document template)
+    // Document templates are only for PDF generation, not email content
     const templateContent = emailTemplate || `Dear ${employee.name},\n\nPlease find attached your requested document.\n\nBest regards,\nHR Department`;
+    
     const processedTemplateContent = templateContent
       .replace(/\{employeeName\}/g, employee.name || 'Employee')
       .replace(/\{employeeEmail\}/g, employee.email || '')
@@ -268,8 +306,10 @@ export function EnhancedEmailDialog({
     const currentData = emailData[employeeIndex];
     if (!currentData || !employee) return false;
 
-    // Check if subject differs from template
+    // Check if subject differs from the email template (not document template)
+    // Document templates are only for PDF generation, not email subject
     const templateSubject = emailTemplateSubject || `Document Request - ${employee.name}`;
+    
     const processedTemplateSubject = templateSubject
       .replace(/\{employeeName\}/g, employee.name || 'Employee')
       .replace(/\{employeeEmail\}/g, employee.email || '')
@@ -288,7 +328,7 @@ export function EnhancedEmailDialog({
 
     setUploadingAttachment(true);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of Array.from(files) as File[]) {
         const attachment: EmailAttachment = {
           id: Date.now().toString() + Math.random(),
           fileName: file.name,
@@ -426,17 +466,21 @@ export function EnhancedEmailDialog({
 
         const emailJob: EmailJob = {
           id: `job_${Date.now()}_${i}`,
+          letterTypeDefinitionId: data.selectedTemplate.id,
+          letterTypeName: data.selectedTemplate.name,
+          tabDataRecordId: tabId,
           employeeId: data.employee.id,
           employeeName: data.employee.name,
           employeeEmail: data.employee.email,
           documentId: `DOC_${Date.now()}_${data.employee.id}`,
-          emailTemplateId: data.selectedTemplate.id,
           subject: data.subject,
           content: data.content,
-          attachments,
+          attachments: JSON.stringify(attachments),
           status: 'pending',
           sentBy: 'Current User',
-          createdAt: new Date()
+          sentByName: 'Current User',
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
 
         emailJobs.push(emailJob);
@@ -462,7 +506,10 @@ export function EnhancedEmailDialog({
                   reader.onload = () => {
                     resolve({
                       fileName: att.fileName,
+                      filePath: att.fileUrl, // Use fileUrl as filePath
+                      contentType: att.mimeType,
                       mimeType: att.mimeType,
+                      isInline: false,
                       content: (reader.result as string).split(',')[1] // Remove data:type;base64, prefix
                     });
                   };
@@ -503,7 +550,7 @@ export function EnhancedEmailDialog({
               ...job,
               id: response.data.id,
               status: response.data.status as any,
-              sentAt: response.data.sentAt || new Date()
+              sentAt: response.data.sentAt ? new Date(response.data.sentAt) : new Date()
             };
             
             updatedJobs.push(updatedJob);

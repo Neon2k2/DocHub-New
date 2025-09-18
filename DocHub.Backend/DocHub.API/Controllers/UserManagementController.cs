@@ -32,25 +32,33 @@ public class UserManagementController : ControllerBase
         try
         {
             var currentUserId = GetCurrentUserId();
+            _logger.LogInformation("🔍 [USER-MGMT] Getting users for current user ID: {UserId}", currentUserId);
+            
             var currentUser = await _userManagementService.GetUserByIdAsync(Guid.Parse(currentUserId));
             
             if (currentUser == null)
             {
+                _logger.LogWarning("❌ [USER-MGMT] Current user not found in database: {UserId}", currentUserId);
                 return Unauthorized(ApiResponse<PaginatedResponse<UserDto>>.ErrorResult("User not found"));
             }
 
+            _logger.LogInformation("✅ [USER-MGMT] Current user found: {Username}, IsAdmin: {IsAdmin}", 
+                currentUser.Username, currentUser.Permissions?.IsAdmin);
+
             // Non-admin users can only see users from their department
-            if (!currentUser.Permissions.IsAdmin)
+            if (currentUser.Permissions?.IsAdmin != true)
             {
                 request.Department = currentUser.Department;
+                _logger.LogInformation("🔒 [USER-MGMT] Non-admin user, restricting to department: {Department}", request.Department);
             }
 
             var result = await _userManagementService.GetUsersAsync(request);
+            _logger.LogInformation("📊 [USER-MGMT] Retrieved {Count} users", result.Items?.Count() ?? 0);
             return Ok(ApiResponse<PaginatedResponse<UserDto>>.SuccessResult(result));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting users");
+            _logger.LogError(ex, "❌ [USER-MGMT] Error getting users");
             return StatusCode(500, ApiResponse<PaginatedResponse<UserDto>>.ErrorResult("An error occurred while getting users"));
         }
     }
@@ -214,17 +222,32 @@ public class UserManagementController : ControllerBase
     }
 
     [HttpGet("roles")]
-    public async Task<ActionResult<ApiResponse<PaginatedResponse<RoleDto>>>> GetRoles([FromQuery] GetRolesRequest request)
+    public async Task<ActionResult<ApiResponse<PaginatedResponse<RoleDto>>>> GetRoles([FromQuery] GetRolesRequest? request = null)
     {
         try
         {
+            // Ensure we have default values if request is null
+            request ??= new GetRolesRequest();
+            
+            _logger.LogInformation("🔍 [ROLE-MGMT] Getting roles with request: Page={Page}, PageSize={PageSize}", 
+                request.Page, request.PageSize);
+
+            // Debug: Check if RoleManagementService is null
+            if (_roleManagementService == null)
+            {
+                _logger.LogError("❌ [ROLE-MGMT] RoleManagementService is null!");
+                return StatusCode(500, ApiResponse<PaginatedResponse<RoleDto>>.ErrorResult("RoleManagementService is not available"));
+            }
+            
             var roles = await _roleManagementService.GetRolesAsync(request);
+            _logger.LogInformation("📊 [ROLE-MGMT] Retrieved {Count} roles", roles.Items?.Count() ?? 0);
             return Ok(ApiResponse<PaginatedResponse<RoleDto>>.SuccessResult(roles));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting roles");
-            return StatusCode(500, ApiResponse<PaginatedResponse<RoleDto>>.ErrorResult("An error occurred while getting roles"));
+            _logger.LogError(ex, "❌ [ROLE-MGMT] Error getting roles: {Message}", ex.Message);
+            _logger.LogError(ex, "❌ [ROLE-MGMT] Stack trace: {StackTrace}", ex.StackTrace);
+            return StatusCode(500, ApiResponse<PaginatedResponse<RoleDto>>.ErrorResult($"An error occurred while getting roles: {ex.Message}"));
         }
     }
 

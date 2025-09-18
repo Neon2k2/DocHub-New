@@ -908,7 +908,7 @@ class ApiService {
 
     const cacheKey = `email_history:${tabId}:${JSON.stringify(params)}`;
     return await cacheService.getOrFetch(cacheKey, async () => {
-      return this.request<ApiResponse<{ items: any[]; total: number }>>(`/api/email-history/${tabId}?${queryParams}`);
+      return this.request<ApiResponse<{ items: any[]; total: number }>>(`/email-history/${tabId}?${queryParams}`);
     }, {
       ttl: 5 * 60 * 1000, // 5 minutes
       staleTtl: 15 * 60 * 1000, // 15 minutes
@@ -935,51 +935,6 @@ class ApiService {
     });
   }
 
-  // User Management APIs
-  async getUsers(): Promise<ApiResponse<UserRole[]>> {
-    const cacheKey = 'users:all';
-    return await cacheService.getOrFetch(cacheKey, async () => {
-      return this.request<ApiResponse<UserRole[]>>('/admin/users');
-    }, {
-      ttl: 10 * 60 * 1000, // 10 minutes
-      staleTtl: 30 * 60 * 1000, // 30 minutes
-      tags: ['users'],
-      revalidate: true
-    });
-  }
-
-  async createUser(user: CreateUserRequest): Promise<ApiResponse<UserRole>> {
-    const response = await this.request<ApiResponse<UserRole>>('/admin/users', {
-      method: 'POST',
-      body: JSON.stringify(user),
-    });
-    
-    // Invalidate user cache on create
-    if (response.success) {
-      cacheService.invalidateByTag('users');
-    }
-    
-    return response;
-  }
-
-  async updateUser(id: string, user: UpdateUserRequest): Promise<ApiResponse<UserRole>> {
-    return this.request<ApiResponse<UserRole>>(`/admin/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(user),
-    });
-  }
-
-  async deleteUser(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/admin/users/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async resetUserPassword(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/admin/users/${id}/reset-password`, {
-      method: 'POST',
-    });
-  }
 
   // Document Template APIs
   async getTemplates(): Promise<ApiResponse<DocumentTemplate[]>> {
@@ -1873,7 +1828,7 @@ class ApiService {
   }
 
 
-  async getEmailHistory(letterTypeDefinitionId: string, pageNumber: number = 1, pageSize: number = 10): Promise<ApiResponse<{ items: EmailJob[]; totalCount: number; pageNumber: number; pageSize: number }>> {
+  async getDynamicEmailHistory(letterTypeDefinitionId: string, pageNumber: number = 1, pageSize: number = 10): Promise<ApiResponse<{ items: EmailJob[]; totalCount: number; pageNumber: number; pageSize: number }>> {
     return this.request<ApiResponse<{ items: EmailJob[]; totalCount: number; pageNumber: number; pageSize: number }>>(`/api/DynamicEmail/history/${letterTypeDefinitionId}?pageNumber=${pageNumber}&pageSize=${pageSize}`);
   }
 
@@ -1976,11 +1931,6 @@ class ApiService {
     return this.request<ApiResponse<LoginHistory[]>>(`/SessionManagement/login-history/${userId}?page=${page}&pageSize=${pageSize}`);
   }
 
-  async terminateSession(sessionId: string): Promise<ApiResponse<string>> {
-    return this.request<ApiResponse<string>>(`/SessionManagement/terminate-session/${sessionId}`, {
-      method: 'POST',
-    });
-  }
 
   async terminateUserSessions(userId: string): Promise<ApiResponse<string>> {
     return this.request<ApiResponse<string>>(`/SessionManagement/terminate-user-sessions/${userId}`, {
@@ -2000,72 +1950,6 @@ class ApiService {
     });
   }
 
-  async getUserById(id: string): Promise<ApiResponse<UserDto>> {
-    return this.request<ApiResponse<UserDto>>(`/api/usermanagement/users/${id}`);
-  }
-
-  async createUser(user: CreateUserRequest): Promise<ApiResponse<UserDto>> {
-    return this.request<ApiResponse<UserDto>>('/api/usermanagement/users', {
-      method: 'POST',
-      body: JSON.stringify(user),
-    });
-  }
-
-  async updateUser(id: string, user: UpdateUserRequest): Promise<ApiResponse<UserDto>> {
-    return this.request<ApiResponse<UserDto>>(`/api/usermanagement/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(user),
-    });
-  }
-
-  async deleteUser(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async resetUserPassword(id: string, request: ResetPasswordRequest): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/reset-password`, {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
-  }
-
-  async toggleUserStatus(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/toggle-status`, {
-      method: 'POST',
-    });
-  }
-
-  async lockUserAccount(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/lock`, {
-      method: 'POST',
-    });
-  }
-
-  async unlockUserAccount(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/usermanagement/users/${id}/unlock`, {
-      method: 'POST',
-    });
-  }
-
-  async validatePassword(request: { password: string; username: string; email: string }): Promise<ApiResponse<PasswordValidationResult>> {
-    return this.request<ApiResponse<PasswordValidationResult>>('/api/usermanagement/validate-password', {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
-  }
-
-  async getPasswordRequirements(): Promise<ApiResponse<{ minLength: number; requireUppercase: boolean; requireLowercase: boolean; requireDigit: boolean; requireSpecialChar: boolean; }>> {
-    return this.request<ApiResponse<{ minLength: number; requireUppercase: boolean; requireLowercase: boolean; requireDigit: boolean; requireSpecialChar: boolean; }>>('/api/usermanagement/password-requirements');
-  }
-
-  async checkPasswordExpiry(request: { userId: string }): Promise<ApiResponse<PasswordExpiryInfo>> {
-    return this.request<ApiResponse<PasswordExpiryInfo>>('/api/usermanagement/check-password-expiry', {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
-  }
 
   // Session Management APIs
   async getUserSessions(userId: string): Promise<ApiResponse<UserSessionDto[]>> {
@@ -2085,55 +1969,70 @@ class ApiService {
   }
 
   // Role Management APIs
-  async getRoles(): Promise<ApiResponse<RoleDto[]>> {
-    return this.request<ApiResponse<RoleDto[]>>('/api/rolemanagement/roles');
+  async getRoles(request?: { page?: number; pageSize?: number; searchTerm?: string; isActive?: boolean; sortBy?: string; sortDirection?: string }): Promise<ApiResponse<PaginatedResponse<RoleDto>>> {
+    const params = new URLSearchParams();
+    
+    if (request?.page !== undefined) params.append('page', request.page.toString());
+    if (request?.pageSize !== undefined) params.append('pageSize', request.pageSize.toString());
+    if (request?.searchTerm) params.append('searchTerm', request.searchTerm);
+    if (request?.isActive !== undefined) params.append('isActive', request.isActive.toString());
+    if (request?.sortBy) params.append('sortBy', request.sortBy);
+    if (request?.sortDirection) params.append('sortDirection', request.sortDirection);
+    
+    const queryString = params.toString();
+    const url = queryString ? `/UserManagement/roles?${queryString}` : '/UserManagement/roles';
+    
+    return this.request<ApiResponse<PaginatedResponse<RoleDto>>>(url);
   }
 
-  async getRoleById(id: string): Promise<ApiResponse<RoleDto>> {
-    return this.request<ApiResponse<RoleDto>>(`/api/rolemanagement/roles/${id}`);
-  }
+  // Note: These role management endpoints are not implemented in the backend yet
+  // They are commented out until the RoleManagementController is created
+  
+  // async getRoleById(id: string): Promise<ApiResponse<RoleDto>> {
+  //   return this.request<ApiResponse<RoleDto>>(`/rolemanagement/roles/${id}`);
+  // }
 
-  async createRole(role: { name: string; description?: string; permissionIds: string[] }): Promise<ApiResponse<RoleDto>> {
-    return this.request<ApiResponse<RoleDto>>('/api/rolemanagement/roles', {
-      method: 'POST',
-      body: JSON.stringify(role),
-    });
-  }
+  // async createRole(role: { name: string; description?: string; permissionIds: string[] }): Promise<ApiResponse<RoleDto>> {
+  //   return this.request<ApiResponse<RoleDto>>('/rolemanagement/roles', {
+  //     method: 'POST',
+  //     body: JSON.stringify(role),
+  //   });
+  // }
 
-  async updateRole(id: string, role: { name?: string; description?: string; isActive?: boolean; permissionIds?: string[] }): Promise<ApiResponse<RoleDto>> {
-    return this.request<ApiResponse<RoleDto>>(`/api/rolemanagement/roles/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(role),
-    });
-  }
+  // async updateRole(id: string, role: { name?: string; description?: string; isActive?: boolean; permissionIds?: string[] }): Promise<ApiResponse<RoleDto>> {
+  //   return this.request<ApiResponse<RoleDto>>(`/rolemanagement/roles/${id}`, {
+  //     method: 'PUT',
+  //     body: JSON.stringify(role),
+  //   });
+  // }
 
-  async deleteRole(id: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>(`/api/rolemanagement/roles/${id}`, {
-      method: 'DELETE',
-    });
-  }
+  // async deleteRole(id: string): Promise<ApiResponse<void>> {
+  //   return this.request<ApiResponse<void>>(`/rolemanagement/roles/${id}`, {
+  //     method: 'DELETE',
+  //   });
+  // }
 
-  async getPermissions(): Promise<ApiResponse<PermissionDto[]>> {
-    return this.request<ApiResponse<PermissionDto[]>>('/api/rolemanagement/permissions');
-  }
+  // async getPermissions(): Promise<ApiResponse<PermissionDto[]>> {
+  //   return this.request<ApiResponse<PermissionDto[]>>('/rolemanagement/permissions');
+  // }
 
-  async assignUserToRole(userId: string, roleId: string, expiresAt?: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>('/api/rolemanagement/assign-user-role', {
-      method: 'POST',
-      body: JSON.stringify({ userId, roleId, expiresAt }),
-    });
-  }
+  // async assignUserToRole(userId: string, roleId: string, expiresAt?: string): Promise<ApiResponse<void>> {
+  //   return this.request<ApiResponse<void>>('/rolemanagement/assign-user-role', {
+  //     method: 'POST',
+  //     body: JSON.stringify({ userId, roleId, expiresAt }),
+  //   });
+  // }
 
-  async removeUserFromRole(userId: string, roleId: string): Promise<ApiResponse<void>> {
-    return this.request<ApiResponse<void>>('/api/rolemanagement/remove-user-role', {
-      method: 'POST',
-      body: JSON.stringify({ userId, roleId }),
-    });
-  }
+  // async removeUserFromRole(userId: string, roleId: string): Promise<ApiResponse<void>> {
+  //   return this.request<ApiResponse<void>>('/rolemanagement/remove-user-role', {
+  //     method: 'POST',
+  //     body: JSON.stringify({ userId, roleId }),
+  //   });
+  // }
 
-  async getUserRoles(userId: string): Promise<ApiResponse<RoleDto[]>> {
-    return this.request<ApiResponse<RoleDto[]>>(`/api/rolemanagement/users/${userId}/roles`);
-  }
+  // async getUserRoles(userId: string): Promise<ApiResponse<RoleDto[]>> {
+  //   return this.request<ApiResponse<RoleDto[]>>(`/rolemanagement/users/${userId}/roles`);
+  // }
 }
 
 // Types and Interfaces

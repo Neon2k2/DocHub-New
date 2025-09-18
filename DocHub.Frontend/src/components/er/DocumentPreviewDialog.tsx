@@ -17,6 +17,8 @@ import { Employee } from '../../services/api.service';
 import { notify } from '../../utils/notifications';
 import { handleError } from '../../utils/errorHandler';
 import { Loading } from '../ui/loading';
+import { useAuth } from '../../contexts/AuthContext';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 
 interface DocumentPreviewDialogProps {
   open: boolean;
@@ -33,6 +35,18 @@ export function DocumentPreviewDialog({
   employees,
   onDocumentsGenerated
 }: DocumentPreviewDialogProps) {
+  const { hasPermission } = useAuth();
+  
+  // Check if user has permission to view documents
+  if (!hasPermission('canAccessER')) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <UnauthorizedPage module="Document Preview" />
+        </DialogContent>
+      </Dialog>
+    );
+  }
   console.log('🔍 [DocumentPreviewDialog] Dialog opened');
   console.log('🔍 [DocumentPreviewDialog] Template:', template);
   console.log('🔍 [DocumentPreviewDialog] Employees:', employees);

@@ -7,6 +7,8 @@ import { Textarea } from '../ui/textarea';
 import { Progress } from '../ui/progress';
 import { excelService, ExcelData } from '../../services/excel.service';
 import { notify } from '../../utils/notifications';
+import { useAuth } from '../../contexts/AuthContext';
+import { UnauthorizedPage } from './UnauthorizedPage';
 
 interface ExcelUploadDialogProps {
   open: boolean;
@@ -23,6 +25,18 @@ export function ExcelUploadDialog({
   tabName, 
   onUploadSuccess 
 }: ExcelUploadDialogProps) {
+  const { hasPermission } = useAuth();
+  
+  // Check if user has permission to upload Excel files
+  if (!hasPermission('canAccessER')) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <UnauthorizedPage module="Excel Upload" />
+        </DialogContent>
+      </Dialog>
+    );
+  }
   const [file, setFile] = useState<File | null>(null);
   const [description, setDescription] = useState('');
   const [uploading, setUploading] = useState(false);

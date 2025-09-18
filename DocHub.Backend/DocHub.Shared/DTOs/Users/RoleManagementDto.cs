@@ -201,3 +201,41 @@ public class BulkRemoveRolesRequest
     [JsonPropertyName("roleIds")]
     public List<Guid> RoleIds { get; set; } = new();
 }
+
+public class CreatePermissionRequest
+{
+    [Required]
+    [StringLength(50, MinimumLength = 2)]
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [StringLength(200)]
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [Required]
+    [StringLength(50)]
+    [JsonPropertyName("category")]
+    public string Category { get; set; } = string.Empty;
+
+    [JsonPropertyName("isActive")]
+    public bool IsActive { get; set; } = true;
+}
+
+public class UpdatePermissionRequest
+{
+    [StringLength(50, MinimumLength = 2)]
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [StringLength(200)]
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [StringLength(50)]
+    [JsonPropertyName("category")]
+    public string? Category { get; set; }
+
+    [JsonPropertyName("isActive")]
+    public bool? IsActive { get; set; }
+}

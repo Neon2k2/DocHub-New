@@ -191,6 +191,7 @@ public class TabController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<LetterTypeDefinitionDto>>> CreateLetterType([FromBody] JsonElement requestData)
     {
         try
@@ -391,6 +392,7 @@ public class TabController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<LetterTypeDefinitionDto>>> UpdateLetterType(Guid id, [FromBody] UpdateLetterTypeRequest request)
     {
         try
@@ -416,6 +418,7 @@ public class TabController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteLetterType(Guid id)
     {
         try
@@ -481,6 +484,7 @@ public class TabController : ControllerBase
     }
 
     [HttpPut("{letterTypeId}/fields/{fieldId}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<DynamicFieldDto>>> UpdateField(Guid letterTypeId, Guid fieldId, [FromBody] UpdateDynamicFieldRequest request)
     {
         try
@@ -506,6 +510,7 @@ public class TabController : ControllerBase
     }
 
     [HttpDelete("{letterTypeId}/fields/{fieldId}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteField(Guid letterTypeId, Guid fieldId)
     {
         try
@@ -695,6 +700,7 @@ public class TabController : ControllerBase
     }
 
     [HttpPut("dynamic-tabs/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<DynamicTabDto>>> UpdateDynamicTab(string id, [FromBody] UpdateDynamicTabRequest request)
     {
         try
@@ -735,6 +741,7 @@ public class TabController : ControllerBase
     }
 
     [HttpDelete("dynamic-tabs/{id}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteDynamicTab(string id)
     {
         try
@@ -1042,7 +1049,7 @@ public class TabController : ControllerBase
                 From = new SendGrid.Helpers.Mail.EmailAddress(fromEmail, fromName),
                 Subject = subject,
                 PlainTextContent = StripHtml(emailContent),
-                HtmlContent = emailContent
+                HtmlContent = ConvertPlainTextToHtml(emailContent)
             };
 
             message.AddTo(new SendGrid.Helpers.Mail.EmailAddress(toEmail, toName));
@@ -1131,6 +1138,26 @@ public class TabController : ControllerBase
     {
         if (string.IsNullOrEmpty(input)) return string.Empty;
         return System.Text.RegularExpressions.Regex.Replace(input, "<.*?>", string.Empty);
+    }
+
+    private string ConvertPlainTextToHtml(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        
+        // If input already contains HTML tags, return as-is
+        if (input.Contains("<") && input.Contains(">"))
+        {
+            return input;
+        }
+        
+        // Convert plain text to HTML
+        return input
+            .Replace("&", "&amp;")      // Escape ampersands first
+            .Replace("<", "&lt;")       // Escape less-than
+            .Replace(">", "&gt;")       // Escape greater-than
+            .Replace("\r\n", "<br>")    // Convert Windows line breaks
+            .Replace("\n", "<br>")      // Convert Unix line breaks
+            .Replace("\r", "<br>");     // Convert Mac line breaks
     }
 
     private bool IsValidEmail(string email)
@@ -1996,6 +2023,7 @@ public class TabController : ControllerBase
     }
 
     [HttpPost("{tabId}/email-template")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<EmailTemplateDto>>> SaveEmailTemplate(string tabId, [FromBody] SaveEmailTemplateRequest request)
     {
         try

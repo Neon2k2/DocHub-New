@@ -138,7 +138,6 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
       setSignalRCallback(callback);
       
       // Manually join user group as backup
-      const { user } = useAuth();
       if (user?.id) {
         await signalRService.joinUserGroup(user.id);
       }
@@ -301,6 +300,9 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
             <Mail className="h-5 w-5" />
             Email History - {tabName}
           </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            View and manage email history for this tab. Track email status, recipients, and delivery information.
+          </p>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden">
@@ -567,20 +569,20 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                       <div className="space-y-3">
                         {realTimeUpdates.map((update, index) => (
                           <div
-                            key={`${update.emailJobId}-${index}`}
+                            key={`${update?.emailJobId || index}-${index}`}
                             className="flex items-center gap-4 p-3 glass-panel rounded-lg border-glass-border animate-pulse"
                           >
                             <div className="w-8 h-8 rounded-full flex items-center justify-center bg-green-500/20">
-                              {getStatusIcon(update.status)}
+                              {getStatusIcon(update?.status)}
                             </div>
 
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium">{update.employeeName || 'Unknown'}</p>
+                              <p className="font-medium">{update?.employeeName || 'Unknown'}</p>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <span>Status updated to:</span>
-                                {getStatusBadge(update.status)}
+                                {getStatusBadge(update?.status)}
                                 <span>•</span>
-                                <span>{formatDateTime(update.timestamp)}</span>
+                                <span>{formatDateTime(update?.timestamp)}</span>
                               </div>
                             </div>
                           </div>
