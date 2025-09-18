@@ -449,7 +449,7 @@ export function TabManagement() {
             }
           }}>
             <DialogTrigger asChild>
-              <Button className="neon-glow">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Tab
               </Button>
@@ -719,7 +719,15 @@ export function TabManagement() {
               <div className="flex justify-between pt-6 border-t">
                 <div>
                   {currentStep > 1 && (
-                    <Button variant="outline" onClick={prevStep}>
+                    <Button 
+                      onClick={prevStep}
+                      className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg"
+                      style={{ 
+                        backgroundColor: '#2563eb', 
+                        color: 'white', 
+                        borderColor: '#3b82f6' 
+                      }}
+                    >
                       <ArrowLeft className="h-4 w-4 mr-2" />
                       Previous
                     </Button>
@@ -728,14 +736,27 @@ export function TabManagement() {
                 
                 <div className="flex space-x-2">
                   <Button 
-                    variant="outline" 
                     onClick={() => setShowCreateDialog(false)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg"
+                    style={{ 
+                      backgroundColor: '#2563eb', 
+                      color: 'white', 
+                      borderColor: '#3b82f6' 
+                    }}
                   >
                     Cancel
                   </Button>
                   
                   {currentStep < 3 ? (
-                    <Button onClick={nextStep}>
+                    <Button 
+                      onClick={nextStep}
+                      className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg"
+                      style={{ 
+                        backgroundColor: '#2563eb', 
+                        color: 'white', 
+                        borderColor: '#3b82f6' 
+                      }}
+                    >
                       Next
                       <ArrowRight className="h-4 w-4 ml-2" />
                     </Button>
@@ -743,7 +764,12 @@ export function TabManagement() {
                     <Button 
                       onClick={handleCreateTab}
                       disabled={isSubmitting}
-                      className="neon-glow"
+                      className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg disabled:opacity-50"
+                      style={{ 
+                        backgroundColor: '#2563eb', 
+                        color: 'white', 
+                        borderColor: '#3b82f6' 
+                      }}
                     >
                       {isSubmitting ? (
                         <>

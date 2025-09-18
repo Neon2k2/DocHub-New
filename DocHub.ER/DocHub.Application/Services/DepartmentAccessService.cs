@@ -85,8 +85,11 @@ public class DepartmentAccessService : IDepartmentAccessService
             _logger.LogInformation("📋 [DEPT-ACCESS] Tab department: {TabDepartment}", tab.Department);
 
             // Check if user's department matches tab's department
-            var canAccess = user.Department.ToLower() == tab.Department.ToLower();
-            _logger.LogInformation("🔍 [DEPT-ACCESS] Department match: {CanAccess}", canAccess);
+            // If tab has no department restriction, allow access
+            // If tab has department, it must match user's department
+            var canAccess = string.IsNullOrEmpty(tab.Department) || user.Department.ToLower() == tab.Department.ToLower();
+            _logger.LogInformation("🔍 [DEPT-ACCESS] Department match: {CanAccess} (tab dept: '{TabDept}', user dept: '{UserDept}')", 
+                canAccess, tab.Department, user.Department);
             
             return canAccess;
         }

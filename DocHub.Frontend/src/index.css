@@ -5032,9 +5032,9 @@
   --sidebar-accent-foreground: oklch(.205 0 0);
   --sidebar-border: oklch(.922 0 0);
   --sidebar-ring: oklch(.708 0 0);
-  --glass-bg: rgba(255, 255, 255, 0.8);
-  --glass-border: rgba(0, 0, 0, 0.1);
-  --glass-shadow: rgba(0, 0, 0, 0.1);
+  --glass-bg: rgba(255, 255, 255, 1);
+  --glass-border: rgba(0, 0, 0, 0.2);
+  --glass-shadow: rgba(0, 0, 0, 0.2);
 }
 
 .dark {
@@ -5072,9 +5072,9 @@
   --sidebar-accent-foreground: oklch(.985 0 0);
   --sidebar-border: #30363d;
   --sidebar-ring: oklch(.439 0 0);
-  --glass-bg: #ffffff0d;
-  --glass-border: #ffffff1a;
-  --glass-shadow: #0000004d;
+  --glass-bg: rgba(13, 17, 23, 1);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
 }
 
 html {
@@ -5082,10 +5082,196 @@ html {
 }
 
 .glass-panel {
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--glass-bg) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border: 1px solid var(--glass-border);
   box-shadow: 0 8px 32px var(--glass-shadow);
+}
+
+/* Specific overrides for header to ensure it's not transparent */
+header.glass-panel {
+  background: var(--background) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark header.glass-panel {
+  background: #0d1117 !important;
+  opacity: 1 !important;
+}
+
+/* Force header to be completely opaque */
+header {
+  background: var(--background) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 50 !important;
+}
+
+.dark header {
+  background: #0d1117 !important;
+  opacity: 1 !important;
+}
+
+/* Additional header opacity fixes */
+header[class*="glass-panel"] {
+  background: var(--background) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark header[class*="glass-panel"] {
+  background: #0d1117 !important;
+  opacity: 1 !important;
+}
+
+/* Login button visibility in dark mode */
+.dark .login-button {
+  background-color: #2563eb !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+.dark .login-button:hover {
+  background-color: #1d4ed8 !important;
+  border-color: #2563eb !important;
+}
+
+/* Ensure dropdown menus are not transparent */
+[data-radix-popper-content-wrapper] .glass-panel {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Target Radix UI DropdownMenuContent specifically */
+[data-radix-dropdown-menu-content] {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 10px 38px -10px rgba(22, 23, 24, 0.35), 0 10px 20px -15px rgba(22, 23, 24, 0.2) !important;
+}
+
+.dark [data-radix-dropdown-menu-content] {
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+  opacity: 1 !important;
+}
+
+/* Target the specific dropdown in header */
+header [data-radix-dropdown-menu-content] {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark header [data-radix-dropdown-menu-content] {
+  background: #161b22 !important;
+  opacity: 1 !important;
+}
+
+/* Additional dropdown targeting */
+[role="menu"] {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark [role="menu"] {
+  background: #161b22 !important;
+  opacity: 1 !important;
+}
+
+/* Target any element with dropdown content */
+[data-state="open"][data-side="bottom"] {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark [data-state="open"][data-side="bottom"] {
+  background: #161b22 !important;
+  opacity: 1 !important;
+}
+
+/* Force blue button styling */
+button.bg-blue-600,
+.bg-blue-600,
+button[class*="bg-blue-600"] {
+  background-color: #2563eb !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+button.bg-blue-600:hover,
+.bg-blue-600:hover,
+button[class*="bg-blue-600"]:hover {
+  background-color: #1d4ed8 !important;
+  border-color: #2563eb !important;
+}
+
+/* Additional blue button overrides */
+button[class*="bg-blue-600"] {
+  background: #2563eb !important;
+  color: white !important;
+  border: 2px solid #3b82f6 !important;
+}
+
+button[class*="bg-blue-600"]:hover {
+  background: #1d4ed8 !important;
+  border-color: #2563eb !important;
+}
+
+/* Specific overrides for admin components */
+.admin button[class*="bg-blue-600"],
+[class*="UserManagement"] button[class*="bg-blue-600"],
+[class*="SessionManagement"] button[class*="bg-blue-600"] {
+  background: #2563eb !important;
+  color: white !important;
+  border: 2px solid #3b82f6 !important;
+}
+
+.admin button[class*="bg-blue-600"]:hover,
+[class*="UserManagement"] button[class*="bg-blue-600"]:hover,
+[class*="SessionManagement"] button[class*="bg-blue-600"]:hover {
+  background: #1d4ed8 !important;
+  border-color: #2563eb !important;
+}
+
+/* Nuclear option - target all possible dropdown selectors */
+[data-radix-dropdown-menu-content],
+[data-radix-dropdown-menu-content] *,
+[role="menu"],
+[role="menu"] *,
+[data-state="open"],
+[data-state="open"] * {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.dark [data-radix-dropdown-menu-content],
+.dark [data-radix-dropdown-menu-content] *,
+.dark [role="menu"],
+.dark [role="menu"] *,
+.dark [data-state="open"],
+.dark [data-state="open"] * {
+  background: #161b22 !important;
+  opacity: 1 !important;
 }
 
 /* Gradient background for logo */

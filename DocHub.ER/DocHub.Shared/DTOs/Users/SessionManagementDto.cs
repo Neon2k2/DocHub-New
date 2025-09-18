@@ -154,10 +154,10 @@ public class SessionStatsDto
     public Dictionary<string, int> SessionsByHour { get; set; } = new();
 
     [JsonPropertyName("averageSessionDuration")]
-    public TimeSpan AverageSessionDuration { get; set; }
+    public string AverageSessionDuration { get; set; } = string.Empty;
 
     [JsonPropertyName("longestActiveSession")]
-    public TimeSpan LongestActiveSession { get; set; }
+    public string LongestActiveSession { get; set; } = string.Empty;
 }
 
 public class TerminateSessionRequest

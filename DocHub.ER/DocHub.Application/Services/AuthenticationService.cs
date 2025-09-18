@@ -423,8 +423,30 @@ public class AuthenticationService : IAuthenticationService
 
     private List<string> GetUserModuleAccess(User user)
     {
-        // For now, return all modules - in a real implementation, this would be based on user permissions
-        return new List<string> { "ER", "Admin", "Billing" };
+        var roles = GetUserRoles(user);
+        var modules = new List<string>();
+        
+        // Only admin users get Admin module access
+        if (roles.Contains("Admin") || roles.Contains("Administrator"))
+        {
+            modules.Add("Admin");
+        }
+        
+        // ER module access based on department or role
+        if (roles.Contains("Admin") || roles.Contains("Administrator") || 
+            user.Department?.ToLower() == "er" || roles.Contains("ER"))
+        {
+            modules.Add("ER");
+        }
+        
+        // Billing module access based on department or role
+        if (roles.Contains("Admin") || roles.Contains("Administrator") || 
+            user.Department?.ToLower() == "billing" || roles.Contains("Billing"))
+        {
+            modules.Add("Billing");
+        }
+        
+        return modules;
     }
 
     private List<string> GetUserRoles(User user)

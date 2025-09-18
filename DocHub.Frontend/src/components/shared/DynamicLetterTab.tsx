@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, FileText, Mail, Database, Edit3, Eye, MousePointer, CheckCircle, AlertCircle, Clock, X, Users, Send, XCircle } from 'lucide-react';
+import { Upload, FileText, Mail, Database, Edit3, Eye, MousePointer, CheckCircle, AlertCircle, Clock, X, Users, Send, XCircle, Search, Download, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -18,7 +18,6 @@ import { DocumentTemplate, GeneratedDocument, EmailJob, Signature } from '../../
 import { useTabData } from '../../hooks/useTabData';
 import { excelService, ExcelData } from '../../services/excel.service';
 import { ExcelUploadDialog } from './ExcelUploadDialog';
-import { EmailHistoryDialog } from './EmailHistoryDialog';
 import { signalRService, EmailStatusUpdate } from '../../services/signalr.service';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
@@ -50,12 +49,19 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
   // Email state
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showEnhancedEmailDialog, setShowEnhancedEmailDialog] = useState(false);
-  const [showEmailHistoryDialog, setShowEmailHistoryDialog] = useState(false);
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   
   // Tab state
   const [activeTab, setActiveTab] = useState<'employees' | 'history'>('employees');
   const [highlightedEmailJobId, setHighlightedEmailJobId] = useState<string | null>(null);
+  
+  // History filter state
+  const [historyFilter, setHistoryFilter] = useState({
+    searchTerm: '',
+    status: 'all',
+    employee: '',
+    dateRange: 'all'
+  });
   
   // Debug activeTab changes
   useEffect(() => {
@@ -361,6 +367,49 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
     return Array.from(deptSet).sort();
   }, [mappedEmployees]);
 
+  // Filter email jobs based on history filter criteria
+  const filteredEmailJobs = useMemo(() => {
+    return emailJobs.filter(job => {
+      // Search term filter
+      const matchesSearch = !historyFilter.searchTerm || 
+        job.subject.toLowerCase().includes(historyFilter.searchTerm.toLowerCase()) ||
+        job.employeeName.toLowerCase().includes(historyFilter.searchTerm.toLowerCase()) ||
+        job.employeeEmail.toLowerCase().includes(historyFilter.searchTerm.toLowerCase()) ||
+        (job.sentByName && job.sentByName.toLowerCase().includes(historyFilter.searchTerm.toLowerCase()));
+
+      // Status filter
+      const matchesStatus = historyFilter.status === 'all' || job.status === historyFilter.status;
+
+      // Employee filter
+      const matchesEmployee = !historyFilter.employee || 
+        job.employeeName.toLowerCase().includes(historyFilter.employee.toLowerCase()) ||
+        job.employeeEmail.toLowerCase().includes(historyFilter.employee.toLowerCase());
+
+      // Date range filter
+      const jobDate = new Date(job.createdAt);
+      const now = new Date();
+      let matchesDateRange = true;
+
+      switch (historyFilter.dateRange) {
+        case 'today':
+          matchesDateRange = jobDate.toDateString() === now.toDateString();
+          break;
+        case 'week':
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          matchesDateRange = jobDate >= weekAgo;
+          break;
+        case 'month':
+          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          matchesDateRange = jobDate >= monthAgo;
+          break;
+        default:
+          matchesDateRange = true;
+      }
+
+      return matchesSearch && matchesStatus && matchesEmployee && matchesDateRange;
+    });
+  }, [emailJobs, historyFilter]);
+
   // Load statistics with caching
   const loadStatistics = async () => {
     try {
@@ -447,10 +496,10 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       console.log('🔍 [DYNAMIC-TAB] Found highlighted email job ID, switching to history tab:', highlightedId);
       setHighlightedEmailJobId(highlightedId);
       setActiveTab('history');
-      setShowEmailHistoryDialog(true); // Also open the history dialog
+      // History tab is now integrated, no dialog needed
       // Clear the session storage after using it
       sessionStorage.removeItem('highlightEmailJobId');
-      console.log('🔍 [DYNAMIC-TAB] Switched to history tab, opened dialog and cleared session storage');
+      console.log('🔍 [DYNAMIC-TAB] Switched to history tab and cleared session storage');
     } else {
       console.log('🔍 [DYNAMIC-TAB] No highlighted email job ID found');
     }
@@ -475,8 +524,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
         console.log('🔍 [DYNAMIC-TAB] Custom navigation event detected, email job ID:', e.detail.emailJobId);
         setHighlightedEmailJobId(e.detail.emailJobId);
         setActiveTab('history');
-        setShowEmailHistoryDialog(true); // Also open the history dialog
-        console.log('🔍 [DYNAMIC-TAB] Switched to history tab and opened dialog via custom event');
+        // History tab is now integrated, no dialog needed
+        console.log('🔍 [DYNAMIC-TAB] Switched to history tab via custom event');
       }
     };
 
@@ -1259,119 +1308,193 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
       </>
       )}
 
-      {/* History Section - Now uses optimized EmailHistoryDialog */}
+      {/* History Section - Full Featured */}
       {activeTab === 'history' && (
-        <Card className="glass-panel border-glass-border">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <FileText className="h-6 w-6 text-blue-500" />
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Email History</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">View all email communications for this tab</p>
+        <div className="space-y-6">
+          {/* Header */}
+          <Card className="glass-panel border-glass-border">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <FileText className="h-6 w-6 text-blue-500" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Email History</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">View and manage email history for this tab. Track email status, recipients, and delivery information.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {/* TODO: Implement export */}}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadEmailHistory()}
+                    disabled={loading}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
                 </div>
               </div>
-              <Button
-                onClick={() => setShowEmailHistoryDialog(true)}
-                variant="outline"
-                className="flex items-center gap-2"
-              >
-                <FileText className="h-4 w-4" />
-                View Full History
-              </Button>
-            </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{statistics.totalMailSent}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Total Sent</div>
-              </div>
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="text-2xl font-bold text-yellow-600">{statistics.pending}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Pending</div>
-              </div>
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="text-2xl font-bold text-red-600">{statistics.notDelivered}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Failed</div>
-              </div>
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{statistics.totalEmployees}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Total Employees</div>
-              </div>
-            </div>
-
-            {/* Recent Emails Preview */}
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                <span className="ml-2 text-gray-600 dark:text-gray-400">Loading email history...</span>
-              </div>
-            ) : emailJobs.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-3">Recent Emails</h4>
-                {emailJobs.slice(0, 5).map((job) => (
-                  <div key={job.id} className="flex items-center gap-4 p-3 glass-panel rounded-lg border-glass-border hover:bg-muted/50 transition-colors">
-                    <div className="flex-shrink-0">
-                      {job.status === 'sent' && <CheckCircle className="h-4 w-4 text-green-500" />}
-                      {job.status === 'delivered' && <CheckCircle className="h-4 w-4 text-blue-500" />}
-                      {job.status === 'opened' && <Eye className="h-4 w-4 text-purple-500" />}
-                      {job.status === 'clicked' && <MousePointer className="h-4 w-4 text-indigo-500" />}
-                      {job.status === 'bounced' && <AlertCircle className="h-4 w-4 text-red-500" />}
-                      {job.status === 'dropped' && <X className="h-4 w-4 text-red-500" />}
-                      {job.status === 'pending' && <Clock className="h-4 w-4 text-yellow-500" />}
-                      {job.status === 'failed' && <X className="h-4 w-4 text-red-500" />}
+              {/* Advanced Filters */}
+              <Card className="mb-4">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-gray-500" />
+                      <Input
+                        placeholder="Search emails..."
+                        value={historyFilter.searchTerm}
+                        onChange={(e) => setHistoryFilter(prev => ({ ...prev, searchTerm: e.target.value }))}
+                        className="flex-1"
+                      />
                     </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <h5 className="font-medium truncate text-sm">{job.employeeName || 'Unknown Employee'}</h5>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            job.status === 'sent' ? 'bg-green-100 text-green-800' :
-                            job.status === 'delivered' ? 'bg-blue-100 text-blue-800' :
-                            job.status === 'opened' ? 'bg-purple-100 text-purple-800' :
-                            job.status === 'clicked' ? 'bg-indigo-100 text-indigo-800' :
-                            job.status === 'bounced' ? 'bg-red-100 text-red-800' :
-                            job.status === 'dropped' ? 'bg-red-100 text-red-800' :
-                            job.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {job.status}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(job.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate mt-1">{job.subject}</p>
-                    </div>
-                  </div>
-                ))}
-                {emailJobs.length > 5 && (
-                  <div className="text-center pt-2">
-                    <Button
-                      onClick={() => setShowEmailHistoryDialog(true)}
-                      variant="outline"
-                      size="sm"
-                      className="text-blue-600 hover:text-blue-700"
+                    
+                    <Select
+                      value={historyFilter.status}
+                      onValueChange={(value) => setHistoryFilter(prev => ({ ...prev, status: value }))}
                     >
-                      View All {emailJobs.length} Emails
-                    </Button>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="sending">Sending</SelectItem>
+                        <SelectItem value="sent">Sent</SelectItem>
+                        <SelectItem value="delivered">Delivered</SelectItem>
+                        <SelectItem value="opened">Opened</SelectItem>
+                        <SelectItem value="clicked">Clicked</SelectItem>
+                        <SelectItem value="bounced">Bounced</SelectItem>
+                        <SelectItem value="dropped">Dropped</SelectItem>
+                        <SelectItem value="failed">Failed</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Input
+                      placeholder="Search employee..."
+                      value={historyFilter.employee}
+                      onChange={(e) => setHistoryFilter(prev => ({ ...prev, employee: e.target.value }))}
+                    />
+
+                    <Select
+                      value={historyFilter.dateRange}
+                      onValueChange={(value) => setHistoryFilter(prev => ({ ...prev, dateRange: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Time" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Time</SelectItem>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="week">This Week</SelectItem>
+                        <SelectItem value="month">This Month</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
-                  <Mail className="h-8 w-8 text-gray-600" />
+                </CardContent>
+              </Card>
+            </CardContent>
+          </Card>
+
+          {/* Email List */}
+          <Card className="glass-panel border-glass-border">
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  <span className="ml-2 text-gray-600 dark:text-gray-400">Loading email history...</span>
                 </div>
-                <p className="text-lg font-medium mb-2">No email history found</p>
-                <p className="text-sm">No emails have been sent for this tab yet</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              ) : filteredEmailJobs.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Email History</h3>
+                  <p className="text-muted-foreground">
+                    {emailJobs.length === 0 
+                      ? "No emails have been sent from this tab yet."
+                      : "No emails match your current filters."
+                    }
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-96 overflow-auto">
+                  {filteredEmailJobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className={`flex items-center gap-4 p-4 glass-panel border-glass-border hover:bg-muted/50 transition-colors ${
+                        highlightedEmailJobId === job.id 
+                          ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/50' 
+                          : ''
+                      }`}
+                    >
+                      <div className="flex-shrink-0">
+                        {job.status === 'sent' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                        {job.status === 'delivered' && <CheckCircle className="h-4 w-4 text-blue-500" />}
+                        {job.status === 'opened' && <Eye className="h-4 w-4 text-purple-500" />}
+                        {job.status === 'clicked' && <MousePointer className="h-4 w-4 text-indigo-500" />}
+                        {job.status === 'bounced' && <AlertCircle className="h-4 w-4 text-red-500" />}
+                        {job.status === 'dropped' && <X className="h-4 w-4 text-red-500" />}
+                        {job.status === 'pending' && <Clock className="h-4 w-4 text-yellow-500" />}
+                        {job.status === 'failed' && <X className="h-4 w-4 text-red-500" />}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium truncate">{job.employeeName || 'Unknown Employee'}</h4>
+                            <span className="text-sm text-muted-foreground">
+                              {job.employeeEmail}
+                            </span>
+                            {job.sentByName && (
+                              <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full">
+                                Sent by: {job.sentByName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              job.status === 'sent' ? 'bg-green-100 text-green-800' :
+                              job.status === 'delivered' ? 'bg-blue-100 text-blue-800' :
+                              job.status === 'opened' ? 'bg-purple-100 text-purple-800' :
+                              job.status === 'clicked' ? 'bg-indigo-100 text-indigo-800' :
+                              job.status === 'bounced' ? 'bg-red-100 text-red-800' :
+                              job.status === 'dropped' ? 'bg-red-100 text-red-800' :
+                              job.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {job.status}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(job.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-sm text-muted-foreground">
+                          <p className="truncate">{job.subject}</p>
+                          {job.errorMessage && (
+                            <p className="text-red-500 text-xs mt-1">
+                              Error: {job.errorMessage}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Dialogs */}
@@ -1429,7 +1552,8 @@ export function DynamicLetterTab({ tab }: DynamicLetterTabProps) {
           emailTemplateSubject={emailTemplateSubject}
           onEmailsSent={(jobs) => {
             setEmailJobs(jobs);
-            toast.success(`Successfully sent ${jobs.length} emails`);
+            // Note: Individual email notifications are handled by NotificationDropdown
+            // toast.success(`Successfully sent ${jobs.length} emails`);
           }}
         />
       )}
@@ -1530,14 +1654,6 @@ HR Department`}
         </DialogContent>
       </Dialog>
 
-      {/* Email History Dialog */}
-      <EmailHistoryDialog
-        open={showEmailHistoryDialog}
-        onOpenChange={setShowEmailHistoryDialog}
-        tabId={tab.id}
-        tabName={tab.name}
-        highlightedEmailJobId={highlightedEmailJobId}
-      />
     </div>
   );
 }

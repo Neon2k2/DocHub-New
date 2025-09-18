@@ -410,13 +410,11 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                   onChange={(e) => setFilter(prev => ({ ...prev, employee: e.target.value }))}
                 />
 
-                {isAdmin() && (
-                  <Input
-                    placeholder="Search sender..."
-                    value={filter.sentBy}
-                    onChange={(e) => setFilter(prev => ({ ...prev, sentBy: e.target.value }))}
-                  />
-                )}
+                <Input
+                  placeholder="Search sender..."
+                  value={filter.sentBy}
+                  onChange={(e) => setFilter(prev => ({ ...prev, sentBy: e.target.value }))}
+                />
               </div>
             </CardContent>
           </Card>
@@ -429,10 +427,7 @@ export function EmailStatusTracker({ showOnlyOwnEmails = false }: EmailStatusTra
                 Email Status ({filteredJobs.length})
               </CardTitle>
               <CardDescription>
-                {isAdmin() 
-                  ? 'All email communications from all users and their delivery status (Admin View)'
-                  : 'Your sent emails and their delivery status'
-                }
+                All email communications from all users and their delivery status
               </CardDescription>
             </CardHeader>
             <CardContent>

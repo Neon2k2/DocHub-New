@@ -184,7 +184,16 @@ export function SessionManagement() {
           <h2 className="text-xl font-semibold">Session Management</h2>
           <p className="text-muted-foreground">Monitor and manage user sessions</p>
         </div>
-        <Button onClick={loadSessionData} disabled={loading} className="gap-2">
+        <Button 
+          onClick={loadSessionData} 
+          disabled={loading} 
+          className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg gap-2"
+          style={{ 
+            backgroundColor: '#2563eb', 
+            color: 'white', 
+            borderColor: '#3b82f6' 
+          }}
+        >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>

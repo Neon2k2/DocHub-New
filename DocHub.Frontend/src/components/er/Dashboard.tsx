@@ -344,48 +344,10 @@ export function ERDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <EmailStatusTracker showOnlyOwnEmails={!isAdmin()} />
+          <EmailStatusTracker showOnlyOwnEmails={false} />
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
-      <Card className="glass-panel border-glass-border">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Common tasks and shortcuts
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {dynamicTabs.length > 0 ? (
-              dynamicTabs.slice(0, 2).map((tab, index) => {
-                return (
-                  <Button 
-                    key={tab.id}
-                    className={`h-16 neon-border-blue bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 transition-all duration-300`}
-                  >
-                    <FileText className="mr-2 h-5 w-5" />
-                    Generate {tab.name}
-                  </Button>
-                );
-              })
-            ) : (
-              <div className="col-span-2 text-center py-8">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No document types available</p>
-                <p className="text-sm text-muted-foreground">Create dynamic tabs to see quick actions</p>
-              </div>
-            )}
-            <Button 
-              className="h-16 neon-border-purple bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-950 dark:text-purple-300 dark:hover:bg-purple-900 transition-all duration-300"
-            >
-              <Users className="mr-2 h-5 w-5" />
-              Employee Management
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

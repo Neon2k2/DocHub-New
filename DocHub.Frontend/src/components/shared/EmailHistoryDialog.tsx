@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { debounce } from 'lodash';
 import { Mail, CheckCircle, AlertCircle, Clock, User, Eye, Loader2, RefreshCw, X, Calendar, Filter, Download, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -43,6 +44,7 @@ const useVirtualScroll = (items: any[], itemHeight: number = 80, containerHeight
 };
 
 export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlightedEmailJobId }: EmailHistoryDialogProps) {
+  const { user } = useAuth();
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
@@ -164,30 +166,29 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
       }
     }
     
+    // Prevent multiple simultaneous requests
+    if (loading) {
+      console.log('📧 [EMAIL_HISTORY] Request already in progress, skipping...');
+      return;
+    }
+    
     setLoading(true);
     try {
-      const response = await apiService.getEmailHistory(tabId, {
-        page: currentPage,
-        pageSize: pageSize,
-        status: filter.status !== 'all' ? filter.status : undefined,
-        searchTerm: filter.searchTerm || filter.employee,
-        sortBy: sortBy,
-        sortDirection: sortDirection
-      });
+      const response = await apiService.getTabEmailHistory(tabId, currentPage, pageSize);
       
       console.log('📊 [EMAIL_HISTORY] API response:', response);
       
       if (response.success && response.data) {
-        console.log('✅ [EMAIL_HISTORY] Successfully loaded', response.data.items.length, 'email jobs');
-        setEmailJobs(response.data.items);
-        setTotalCount(response.data.totalCount);
-        setTotalPages(response.data.totalPages);
+        console.log('✅ [EMAIL_HISTORY] Successfully loaded', response.data.length, 'email jobs');
+        setEmailJobs(response.data);
+        setTotalCount(response.data.length);
+        setTotalPages(Math.ceil(response.data.length / pageSize));
         
         // Cache for 5 minutes fresh, 15 minutes stale window
         cacheService.set(cacheKey, { 
-          emailJobs: response.data.items, 
-          totalCount: response.data.totalCount,
-          totalPages: response.data.totalPages
+          emailJobs: response.data, 
+          totalCount: response.data.length,
+          totalPages: Math.ceil(response.data.length / pageSize)
         }, 5 * 60 * 1000, 15 * 60 * 1000);
       } else {
         console.log('⚠️ [EMAIL_HISTORY] No data received from API');
@@ -199,6 +200,23 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
       console.log('🏁 [EMAIL_HISTORY] Loading completed');
     }
   };
+
+  // Debounced search to prevent too many API calls
+  const debouncedSearch = useCallback(
+    debounce((searchTerm: string) => {
+      setFilter(prev => ({ ...prev, searchTerm }));
+      setCurrentPage(1);
+    }, 500),
+    []
+  );
+
+  const debouncedEmployeeSearch = useCallback(
+    debounce((employee: string) => {
+      setFilter(prev => ({ ...prev, employee }));
+      setCurrentPage(1);
+    }, 500),
+    []
+  );
 
   const handleRefresh = useCallback(() => {
     console.log('🔄 [EMAIL_HISTORY] Manual refresh triggered');
@@ -267,7 +285,15 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | undefined) => {
+    if (!status) {
+      return (
+        <Badge className="bg-gray-100 text-gray-800 text-xs">
+          Unknown
+        </Badge>
+      );
+    }
+
     const variants: Record<string, string> = {
       sent: 'bg-green-100 text-green-800',
       delivered: 'bg-green-100 text-green-800',
@@ -345,7 +371,7 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                       <Input
                         placeholder="Search emails..."
                         value={filter.searchTerm}
-                        onChange={(e) => setFilter(prev => ({ ...prev, searchTerm: e.target.value }))}
+                        onChange={(e) => debouncedSearch(e.target.value)}
                         className="flex-1"
                       />
                     </div>
@@ -374,7 +400,7 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                     <Input
                       placeholder="Search employee..."
                       value={filter.employee}
-                      onChange={(e) => setFilter(prev => ({ ...prev, employee: e.target.value }))}
+                      onChange={(e) => debouncedEmployeeSearch(e.target.value)}
                     />
 
                     <Select
@@ -435,6 +461,11 @@ export function EmailHistoryDialog({ open, onOpenChange, tabId, tabName, highlig
                                     <span className="text-sm text-muted-foreground">
                                       {job.employeeEmail}
                                     </span>
+                                    {job.sentByName && (
+                                      <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full">
+                                        Sent by: {job.sentByName}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-2">
                                     {getStatusBadge(job.status)}

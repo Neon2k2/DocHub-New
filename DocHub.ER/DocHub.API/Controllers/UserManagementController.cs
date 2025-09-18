@@ -111,6 +111,11 @@ public class UserManagementController : ControllerBase
             var created = await _userManagementService.CreateUserAsync(request, GetCurrentUserId());
             return CreatedAtAction(nameof(GetUser), new { id = created.Id }, ApiResponse<UserDto>.SuccessResult(created));
         }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Validation error creating user: {Message}", ex.Message);
+            return BadRequest(ApiResponse<UserDto>.ErrorResult(ex.Message));
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating user");
@@ -131,6 +136,11 @@ public class UserManagementController : ControllerBase
 
             var updated = await _userManagementService.UpdateUserAsync(id, request, GetCurrentUserId());
             return Ok(ApiResponse<UserDto>.SuccessResult(updated));
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Validation error updating user {UserId}: {Message}", id, ex.Message);
+            return BadRequest(ApiResponse<UserDto>.ErrorResult(ex.Message));
         }
         catch (Exception ex)
         {

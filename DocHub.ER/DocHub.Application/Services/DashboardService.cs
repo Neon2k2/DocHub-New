@@ -33,29 +33,21 @@ public class DashboardService : IDashboardService
 
             _logger.LogInformation("🔄 [DASHBOARD-STATS] Calculating stats for {Module} at {Timestamp}", module, now);
 
-            // Execute queries sequentially to avoid DbContext concurrency issues
-            // Get user statistics
-            var totalUsers = await _dbContext.Users.CountAsync();
-            var activeUsers = await _dbContext.Users.CountAsync(u => u.IsActive);
-            var activeSessions = await _dbContext.Users.CountAsync(u => u.LastLoginAt.HasValue && u.LastLoginAt >= DateTime.UtcNow.AddHours(-24));
-            var newJoiningsThisMonth = await _dbContext.Users.CountAsync(u => u.CreatedAt >= startOfMonth);
-            var relievedThisMonth = await _dbContext.Users.CountAsync(u => !u.IsActive && u.UpdatedAt >= startOfMonth);
-            
-            // Get letter type statistics
-            var totalLetterTypes = await _dbContext.LetterTypeDefinitions.CountAsync();
-            var activeLetterTypes = await _dbContext.LetterTypeDefinitions.CountAsync(lt => lt.IsActive);
-            
-            // Get document and email statistics
-            var totalDocuments = await _dbContext.GeneratedDocuments.CountAsync();
-            var totalEmailJobs = await _dbContext.EmailJobs.CountAsync();
-            var pendingEmails = await _dbContext.EmailJobs.CountAsync(ej => ej.Status == "pending" || ej.Status == "sent");
-            var approvedEmails = await _dbContext.EmailJobs.CountAsync(ej => ej.Status == "delivered" || ej.Status == "opened");
+            // Execute queries in parallel for better performance
+            var userStatsTask = GetUserStatisticsAsync(startOfMonth);
+            var letterTypeStatsTask = GetLetterTypeStatisticsAsync();
+            var documentEmailStatsTask = GetDocumentEmailStatisticsAsync();
+            var recentActivitiesTask = GetRecentActivitiesAsync(userId, isAdmin);
+
+            await Task.WhenAll(userStatsTask, letterTypeStatsTask, documentEmailStatsTask, recentActivitiesTask);
+
+            var (totalUsers, activeUsers, activeSessions, newJoiningsThisMonth, relievedThisMonth) = await userStatsTask;
+            var (totalLetterTypes, activeLetterTypes) = await letterTypeStatsTask;
+            var (totalDocuments, totalEmailJobs, pendingEmails, approvedEmails) = await documentEmailStatsTask;
+            var recentActivities = await recentActivitiesTask;
             
             // Simple uptime calculation
             var systemUptime = 99.9m;
-            
-            // Return empty activities for now
-            var recentActivities = new List<ActivityDto>();
 
             var stats = new DashboardStatsDto
             {
@@ -466,6 +458,59 @@ public class DashboardService : IDashboardService
         {
             _logger.LogError(ex, "Error calculating system uptime");
             return 99.9m; // Default uptime on error
+        }
+    }
+
+    private async Task<(int TotalUsers, int ActiveUsers, int ActiveSessions, int NewJoiningsThisMonth, int RelievedThisMonth)> GetUserStatisticsAsync(DateTime startOfMonth)
+    {
+        try
+        {
+            var totalUsers = await _dbContext.Users.CountAsync();
+            var activeUsers = await _dbContext.Users.CountAsync(u => u.IsActive);
+            var activeSessions = await _dbContext.Users.CountAsync(u => u.LastLoginAt.HasValue && u.LastLoginAt >= DateTime.UtcNow.AddHours(-24));
+            var newJoiningsThisMonth = await _dbContext.Users.CountAsync(u => u.CreatedAt >= startOfMonth);
+            var relievedThisMonth = await _dbContext.Users.CountAsync(u => !u.IsActive && u.UpdatedAt >= startOfMonth);
+            
+            return (totalUsers, activeUsers, activeSessions, newJoiningsThisMonth, relievedThisMonth);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting user statistics");
+            return (0, 0, 0, 0, 0);
+        }
+    }
+
+    private async Task<(int TotalLetterTypes, int ActiveLetterTypes)> GetLetterTypeStatisticsAsync()
+    {
+        try
+        {
+            var totalLetterTypes = await _dbContext.LetterTypeDefinitions.CountAsync();
+            var activeLetterTypes = await _dbContext.LetterTypeDefinitions.CountAsync(lt => lt.IsActive);
+            
+            return (totalLetterTypes, activeLetterTypes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting letter type statistics");
+            return (0, 0);
+        }
+    }
+
+    private async Task<(int TotalDocuments, int TotalEmailJobs, int PendingEmails, int ApprovedEmails)> GetDocumentEmailStatisticsAsync()
+    {
+        try
+        {
+            var totalDocuments = await _dbContext.GeneratedDocuments.CountAsync();
+            var totalEmailJobs = await _dbContext.EmailJobs.CountAsync();
+            var pendingEmails = await _dbContext.EmailJobs.CountAsync(ej => ej.Status == "pending" || ej.Status == "sent");
+            var approvedEmails = await _dbContext.EmailJobs.CountAsync(ej => ej.Status == "delivered" || ej.Status == "opened");
+            
+            return (totalDocuments, totalEmailJobs, pendingEmails, approvedEmails);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting document and email statistics");
+            return (0, 0, 0, 0);
         }
     }
 }

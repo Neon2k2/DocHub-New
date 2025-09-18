@@ -285,17 +285,13 @@ export interface ApiResponse<T> {
 }
 
 export interface PaginatedResponse<T> {
-  success: boolean;
-  data: {
-    items: T[];
-    pagination: {
-      currentPage: number;
-      totalPages: number;
-      totalRecords: number;
-      hasNext: boolean;
-      hasPrevious: boolean;
-    };
-  };
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 // Backend pagination format
@@ -328,6 +324,8 @@ export interface EmailJob {
   status: string;
   trackingId: string;
   sendGridMessageId?: string;
+  sentBy?: string;
+  sentByName?: string;
   createdAt: string;
   sentAt?: string;
   deliveredAt?: string;
@@ -418,7 +416,8 @@ class ApiService {
       }
       
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP Error: ${response.status}`);
+      const errorMessage = errorData.error?.message || errorData.message || `HTTP Error: ${response.status}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
@@ -1866,12 +1865,13 @@ class ApiService {
   }
 
   // User Management APIs
-  async getUsers(request?: { page?: number; pageSize?: number; searchTerm?: string; department?: string }): Promise<ApiResponse<PaginatedResponse<UserDto>>> {
+  async getUsers(request?: { page?: number; pageSize?: number; searchTerm?: string; department?: string; isActive?: boolean }): Promise<ApiResponse<PaginatedResponse<UserDto>>> {
     const params = new URLSearchParams();
     if (request?.page) params.append('page', request.page.toString());
     if (request?.pageSize) params.append('pageSize', request.pageSize.toString());
     if (request?.searchTerm) params.append('searchTerm', request.searchTerm);
     if (request?.department) params.append('department', request.department);
+    if (request?.isActive !== undefined) params.append('isActive', request.isActive.toString());
     
     const queryString = params.toString();
     return this.request<ApiResponse<PaginatedResponse<UserDto>>>(`/UserManagement${queryString ? `?${queryString}` : ''}`);
@@ -2705,7 +2705,7 @@ export interface UpdateUserRequest {
   zipCode?: string;
   country?: string;
   isActive?: boolean;
-  roleIds?: string[];
+  roles?: string[];
 }
 
 export interface ResetPasswordRequest {

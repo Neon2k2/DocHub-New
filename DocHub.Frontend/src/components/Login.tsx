@@ -62,7 +62,7 @@ export function Login() {
         </div>
 
         {/* Login Form */}
-        <Card className="glass-panel border-glass-border">
+        <Card className="bg-card border border-border shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <LogIn className="h-5 w-5 text-blue-600" />
@@ -108,7 +108,7 @@ export function Login() {
             <Button 
               onClick={handleLogin}
               disabled={isLoading}
-              className="w-full neon-border-blue bg-blue-600 hover:bg-blue-700 text-black dark:text-white transition-all duration-300 disabled:opacity-50"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 disabled:opacity-50 shadow-lg login-button"
             >
               {isLoading ? (
                 <>

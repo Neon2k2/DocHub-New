@@ -407,21 +407,21 @@ DocHub.Frontend/coverage/
 DocHub.Frontend/.nyc_output/
 
 # Backend specific (if you have a .NET backend)
-DocHub.Backend/bin/
-DocHub.Backend/obj/
-DocHub.Backend/out/
-DocHub.Backend/*.user
-DocHub.Backend/*.suo
-DocHub.Backend/*.cache
-DocHub.Backend/*.dll
-DocHub.Backend/*.pdb
-DocHub.Backend/*.exe
-DocHub.Backend/*.log
-DocHub.Backend/*.tmp
-DocHub.Backend/*.temp
-DocHub.Backend/*.swp
-DocHub.Backend/*.swo
-DocHub.Backend/*~
+DocHub.ER/bin/
+DocHub.ER/obj/
+DocHub.ER/out/
+DocHub.ER/*.user
+DocHub.ER/*.suo
+DocHub.ER/*.cache
+DocHub.ER/*.dll
+DocHub.ER/*.pdb
+DocHub.ER/*.exe
+DocHub.ER/*.log
+DocHub.ER/*.tmp
+DocHub.ER/*.temp
+DocHub.ER/*.swp
+DocHub.ER/*.swo
+DocHub.ER/*~
 
 # Database files
 *.mdf
@@ -471,4 +471,4 @@ docker-compose.override.yml
 # Local development
 local.settings.json
 appsettings.local.json
-DocHub.Backend/DocHub.API/appsettings.json
+DocHub.ER/DocHub.API/appsettings.json

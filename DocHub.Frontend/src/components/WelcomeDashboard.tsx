@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, User, Briefcase, Clock, Activity, TrendingUp } from 'lucide-react';
+import { Shield, User, Clock, Activity, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { UserInfoCard } from './UserInfoCard';
 import { UserRole } from './Login';
@@ -20,31 +20,6 @@ export function WelcomeDashboard({ onNavigate }: WelcomeDashboardProps) {
     return `${greeting}, ${currentUser.name}!`;
   };
 
-  const getQuickActions = () => {
-    const actions = [];
-    
-    if (currentUser.permissions.canAccessER) {
-      actions.push({
-        title: 'Employee Relations',
-        description: 'Generate and manage employee letters',
-        icon: <User className="h-6 w-6 text-blue-400" />,
-        onClick: () => onNavigate('er', 'dashboard'),
-        color: 'bg-blue-500/20 border-blue-500/30 hover:bg-blue-500/30'
-      });
-    }
-    
-    if (currentUser.permissions.canAccessBilling) {
-      actions.push({
-        title: 'Billing & Timesheet',
-        description: 'Process timesheets and manage billing',
-        icon: <Briefcase className="h-6 w-6 text-green-400" />,
-        onClick: () => onNavigate('billing', 'dashboard'),
-        color: 'bg-green-500/20 border-green-500/30 hover:bg-green-500/30'
-      });
-    }
-    
-    return actions;
-  };
 
   const getRoleSpecificStats = () => {
     if (currentUser.permissions.isAdmin) {
@@ -122,55 +97,6 @@ export function WelcomeDashboard({ onNavigate }: WelcomeDashboardProps) {
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <Card className="glass-panel border-glass-border">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Access the modules you have permissions for
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {getQuickActions().map((action, index) => (
-              <div
-                key={index}
-                className={`p-6 rounded-lg border cursor-pointer transition-all duration-300 ${action.color}`}
-                onClick={action.onClick}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="p-2 glass-panel rounded-lg border-glass-border">
-                    {action.icon}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold mb-1">{action.title}</h3>
-                    <p className="text-sm text-muted-foreground">{action.description}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-            
-            {/* Show restricted access message if user doesn't have full access */}
-            {(!currentUser.permissions.canAccessER || !currentUser.permissions.canAccessBilling) && (
-              <div className="p-6 rounded-lg border border-muted bg-muted/10 opacity-50">
-                <div className="flex items-start gap-4">
-                  <div className="p-2 glass-panel rounded-lg border-glass-border">
-                    <Shield className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold mb-1 text-muted-foreground">
-                      {currentUser.permissions.canAccessER ? 'Billing & Timesheet' : 'Employee Relations'}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Access restricted - Contact administrator for permissions
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Admin-specific sections */}
       {currentUser.permissions.isAdmin && (

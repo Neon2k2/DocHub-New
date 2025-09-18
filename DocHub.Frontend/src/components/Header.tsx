@@ -35,7 +35,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
     }
   };
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 h-16 glass-panel border-b">
+    <header className="fixed top-0 left-0 right-0 z-50 h-16 bg-background border-b border-border shadow-sm">
       <div className="flex items-center justify-between h-full px-4 md:px-6">
         {/* Logo */}
         <div className="flex items-center space-x-2 md:space-x-4">
@@ -120,7 +120,7 @@ export function Header({ activeModule, onModuleChange, currentUser, onNavigateTo
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="glass-panel border-glass-border">
+            <DropdownMenuContent align="end" className="bg-popover border border-border shadow-lg opacity-100" style={{ background: 'var(--popover)', opacity: 1 }}>
               <div className="px-2 py-1.5 text-sm text-muted-foreground">
                 Signed in as <span className="font-medium text-foreground">{currentUser.username}</span>
               </div>

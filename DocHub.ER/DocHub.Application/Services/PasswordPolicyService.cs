@@ -8,16 +8,16 @@ public class PasswordPolicyService : IPasswordPolicyService
 {
     private readonly ILogger<PasswordPolicyService> _logger;
 
-    // Password policy configuration
-    private const int MinLength = 8;
+    // Password policy configuration - Relaxed for better user experience
+    private const int MinLength = 6;  // Reduced from 8
     private const int MaxLength = 128;
-    private const bool RequireUppercase = true;
-    private const bool RequireLowercase = true;
-    private const bool RequireDigit = true;
-    private const bool RequireSpecialChar = true;
-    private const int MinUniqueChars = 4;
-    private const bool PreventCommonPasswords = true;
-    private const bool PreventUserInfo = true;
+    private const bool RequireUppercase = false;  // Made optional
+    private const bool RequireLowercase = true;   // Keep this
+    private const bool RequireDigit = true;       // Keep this
+    private const bool RequireSpecialChar = false; // Made optional
+    private const int MinUniqueChars = 3;         // Reduced from 4
+    private const bool PreventCommonPasswords = false; // Disabled
+    private const bool PreventUserInfo = false;   // Disabled
 
     // Common weak passwords
     private static readonly string[] CommonPasswords = {
@@ -105,17 +105,17 @@ public class PasswordPolicyService : IPasswordPolicyService
             }
         }
 
-        // Consecutive character validation
-        if (HasConsecutiveCharacters(password))
-        {
-            errors.Add("Password cannot contain more than 2 consecutive identical characters");
-        }
+        // Consecutive character validation - Disabled for better UX
+        // if (HasConsecutiveCharacters(password))
+        // {
+        //     errors.Add("Password cannot contain more than 2 consecutive identical characters");
+        // }
 
-        // Sequential character validation
-        if (HasSequentialCharacters(password))
-        {
-            errors.Add("Password cannot contain sequential characters (abc, 123, etc.)");
-        }
+        // Sequential character validation - Disabled for better UX
+        // if (HasSequentialCharacters(password))
+        // {
+        //     errors.Add("Password cannot contain sequential characters (abc, 123, etc.)");
+        // }
 
         // Calculate password strength
         result.Strength = GetPasswordStrength(password);
@@ -155,8 +155,9 @@ public class PasswordPolicyService : IPasswordPolicyService
             $"At least {MinUniqueChars} unique characters"
         };
 
-        if (RequireUppercase)
-            requirements.Add("At least one uppercase letter (A-Z)");
+        // Only add requirements that are actually enabled
+        // if (RequireUppercase) // Disabled for better UX
+        //     requirements.Add("At least one uppercase letter (A-Z)");
 
         if (RequireLowercase)
             requirements.Add("At least one lowercase letter (a-z)");
@@ -164,13 +165,13 @@ public class PasswordPolicyService : IPasswordPolicyService
         if (RequireDigit)
             requirements.Add("At least one digit (0-9)");
 
-        if (RequireSpecialChar)
-            requirements.Add("At least one special character (!@#$%^&*)");
+        // if (RequireSpecialChar) // Disabled for better UX
+        //     requirements.Add("At least one special character (!@#$%^&*)");
 
-        requirements.Add("Cannot contain your username or email");
-        requirements.Add("Cannot contain common passwords");
-        requirements.Add("Cannot contain more than 2 consecutive identical characters");
-        requirements.Add("Cannot contain sequential characters (abc, 123, etc.)");
+        // requirements.Add("Cannot contain your username or email"); // Disabled for better UX
+        // requirements.Add("Cannot contain common passwords"); // Disabled for better UX
+        // requirements.Add("Cannot contain more than 2 consecutive identical characters"); // Disabled for better UX
+        // requirements.Add("Cannot contain sequential characters (abc, 123, etc.)"); // Disabled for better UX
 
         return requirements;
     }

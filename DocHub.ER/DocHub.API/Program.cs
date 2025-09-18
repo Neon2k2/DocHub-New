@@ -175,14 +175,18 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("Admin"));
 });
 
-// Database
-builder.Services.AddDbContext<DocHubDbContext>(options =>
+// Database with connection pooling for better performance
+builder.Services.AddDbContextPool<DocHubDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), 
         sqlOptions => 
         {
-            sqlOptions.CommandTimeout(60);
-            sqlOptions.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
-        }));
+            sqlOptions.CommandTimeout(30); // Reduced timeout for better responsiveness
+            sqlOptions.EnableRetryOnFailure(maxRetryCount: 2, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
+        })
+    .EnableSensitiveDataLogging(false)
+    .EnableServiceProviderCaching()
+    .EnableDetailedErrors(false), 
+    poolSize: 100); // Connection pool size for multiple users
 
 // Repositories
 builder.Services.AddScoped<IDbContext>(provider => provider.GetRequiredService<DocHubDbContext>());

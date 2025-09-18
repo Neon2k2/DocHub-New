@@ -175,9 +175,15 @@ public class UserManagementService : IUserManagementService
             await _dbContext.SaveChangesAsync();
 
             // Assign roles
+            _logger.LogInformation("🔍 [CREATE-USER] Role assignment - Request.Roles: {Roles}", string.Join(", ", request.Roles));
             if (request.Roles.Any())
             {
                 await AssignRolesToUserAsync(user.Id, request.Roles);
+                _logger.LogInformation("✅ [CREATE-USER] Roles assigned successfully to user: {UserId}", user.Id);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ [CREATE-USER] No roles provided for user: {UserId}", user.Id);
             }
 
             // Invalidate user-related caches
@@ -211,6 +217,17 @@ public class UserManagementService : IUserManagementService
             }
 
             // Update fields if provided
+            if (!string.IsNullOrEmpty(request.Username))
+            {
+                // Check if username is already taken by another user
+                var existingUser = await _userRepository.GetByUsernameAsync(request.Username);
+                if (existingUser != null && existingUser.Id != userId)
+                {
+                    throw new ArgumentException("Username already exists");
+                }
+                user.Username = request.Username;
+            }
+
             if (!string.IsNullOrEmpty(request.FirstName))
                 user.FirstName = request.FirstName;
 
@@ -268,7 +285,9 @@ public class UserManagementService : IUserManagementService
             // Update roles if provided
             if (request.Roles != null)
             {
+                _logger.LogInformation("🔍 [UPDATE-USER] Role update - Request.Roles: {Roles}", string.Join(", ", request.Roles));
                 await UpdateUserRolesAsync(userId, request.Roles);
+                _logger.LogInformation("✅ [UPDATE-USER] Roles updated successfully for user: {UserId}", userId);
             }
 
             await _dbContext.SaveChangesAsync();

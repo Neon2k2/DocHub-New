@@ -26,6 +26,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
   const [permissions, setPermissions] = useState<PermissionDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDto | null>(null);
   const [passwordValidation, setPasswordValidation] = useState<PasswordValidationResult | null>(null);
@@ -53,45 +54,37 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
       console.log('🔄 [UserManagement] Starting to load data...');
       
       const [usersResponse, rolesResponse] = await Promise.all([
-        apiService.getUsers({ page: 1, pageSize: 100 }),
+        apiService.getUsers({ page: 1, pageSize: 100, isActive: true }),
         apiService.getRoles({ page: 1, pageSize: 100 })
       ]);
 
       console.log('🔍 [UserManagement] Users response:', usersResponse);
       console.log('🔍 [UserManagement] Users response.data:', usersResponse.data);
-      console.log('🔍 [UserManagement] Users response.data.data:', usersResponse.data?.data);
       console.log('🔍 [UserManagement] Roles response:', rolesResponse);
       console.log('🔍 [UserManagement] Roles response.data:', rolesResponse.data);
-      console.log('🔍 [UserManagement] Roles response.data.data:', rolesResponse.data?.data);
 
       if (usersResponse.success) {
         // Try different possible response structures
-        const users = usersResponse.data?.data?.items || 
-                     usersResponse.data?.items || 
-                     usersResponse.data || 
-                     [];
+        const users = usersResponse.data?.items || [];
         console.log('🔍 [UserManagement] Extracted users:', users);
         console.log('🔍 [UserManagement] Users count:', users.length);
         console.log('🔍 [UserManagement] Users type:', typeof users, Array.isArray(users));
         setUsers(Array.isArray(users) ? users : []);
       } else {
         console.error('❌ [UserManagement] Users response failed:', usersResponse);
-        setError(`Failed to load users: ${usersResponse.message || 'Unknown error'}`);
+        setError(`Failed to load users: ${usersResponse.error?.message || 'Unknown error'}`);
       }
 
       if (rolesResponse.success) {
         // Try different possible response structures
-        const roles = rolesResponse.data?.data?.items || 
-                     rolesResponse.data?.items || 
-                     rolesResponse.data || 
-                     [];
+        const roles = rolesResponse.data?.items || [];
         console.log('🔍 [UserManagement] Extracted roles:', roles);
         console.log('🔍 [UserManagement] Roles count:', roles.length);
         console.log('🔍 [UserManagement] Roles type:', typeof roles, Array.isArray(roles));
         setRoles(Array.isArray(roles) ? roles : []);
       } else {
         console.error('❌ [UserManagement] Roles response failed:', rolesResponse);
-        setError(`Failed to load roles: ${rolesResponse.message || 'Unknown error'}`);
+        setError(`Failed to load roles: ${rolesResponse.error?.message || 'Unknown error'}`);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -106,16 +99,34 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await apiService.createUser(formData);
+      // Convert roleIds to role names for the API
+      const roleNames = formData.roleIds
+        .map(roleId => roles.find(r => r.id === roleId)?.name)
+        .filter(Boolean) as string[];
+      
+      const createData = {
+        ...formData,
+        roles: roleNames
+      };
+      
+      console.log('🔍 [CREATE-USER] Sending data:', createData);
+      const response = await apiService.createUser(createData);
       if (response.success) {
         setUsers([...users, response.data!]);
         setShowCreateForm(false);
         resetForm();
+        setSuccessMessage(`User "${createData.username}" created successfully!`);
+        setError(null);
+        // Clear success message after 5 seconds
+        setTimeout(() => setSuccessMessage(null), 5000);
       } else {
         setError('Failed to create user');
+        setSuccessMessage(null);
       }
-    } catch (err) {
-      setError('Failed to create user');
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to create user';
+      setError(errorMessage);
+      setSuccessMessage(null);
       console.error('Error creating user:', err);
     } finally {
       setLoading(false);
@@ -128,15 +139,21 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
 
     setLoading(true);
     try {
+      // Convert roleIds to role names for the API
+      const roleNames = formData.roleIds
+        .map(roleId => roles.find(r => r.id === roleId)?.name)
+        .filter(Boolean) as string[];
+      
       const updateData: UpdateUserRequest = {
         username: formData.username,
         email: formData.email,
         firstName: formData.firstName,
         lastName: formData.lastName,
         department: formData.department,
-        roleIds: formData.roleIds
+        roles: roleNames
       };
 
+      console.log('🔍 [UPDATE-USER] Sending data:', updateData);
       const response = await apiService.updateUser(editingUser.id, updateData);
       if (response.success) {
         setUsers(users.map(u => u.id === editingUser.id ? response.data! : u));
@@ -145,8 +162,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
       } else {
         setError('Failed to update user');
       }
-    } catch (err) {
-      setError('Failed to update user');
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to update user';
+      setError(errorMessage);
       console.error('Error updating user:', err);
     } finally {
       setLoading(false);
@@ -164,8 +182,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
       } else {
         setError('Failed to delete user');
       }
-    } catch (err) {
-      setError('Failed to delete user');
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to delete user';
+      setError(errorMessage);
       console.error('Error deleting user:', err);
     } finally {
       setLoading(false);
@@ -199,12 +218,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
 
     const errors: string[] = [];
     
-    if (password.length < 8) {
-      errors.push('Password must be at least 8 characters long');
-    }
-    
-    if (!/[A-Z]/.test(password)) {
-      errors.push('Password must contain at least one uppercase letter');
+    // Basic validation only - relaxed rules
+    if (password.length < 6) {
+      errors.push('Password must be at least 6 characters long');
     }
     
     if (!/[a-z]/.test(password)) {
@@ -214,14 +230,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
     if (!/\d/.test(password)) {
       errors.push('Password must contain at least one number');
     }
-    
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      errors.push('Password must contain at least one special character');
+
+    // Check for minimum unique characters
+    const uniqueChars = new Set(password.toLowerCase()).size;
+    if (uniqueChars < 3) {
+      errors.push('Password must contain at least 3 different characters');
     }
 
     let strength: 'weak' | 'medium' | 'strong' = 'weak';
     if (errors.length === 0) {
-      strength = password.length >= 12 ? 'strong' : 'medium';
+      if (password.length >= 10) {
+        strength = 'strong';
+      } else if (password.length >= 8) {
+        strength = 'medium';
+      } else {
+        strength = 'weak';
+      }
     }
 
     setPasswordValidation({
@@ -242,6 +266,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
       roleIds: []
     });
     setPasswordValidation(null);
+    setError(null);
+    setSuccessMessage(null);
   };
 
   const startEdit = (user: UserDto) => {
@@ -292,44 +318,40 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
           <button
             onClick={loadData}
             disabled={loading}
-            className={`px-4 py-2 text-sm font-medium border rounded-md transition-colors ${
-              isDarkMode 
-                ? 'text-gray-300 bg-gray-700 border-gray-600 hover:bg-gray-600 disabled:opacity-50' 
-                : 'text-gray-700 bg-gray-100 border-gray-300 hover:bg-gray-200 disabled:opacity-50'
-            }`}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border-2 border-blue-500 rounded-md transition-all duration-300 hover:bg-blue-700 hover:border-blue-400 disabled:opacity-50 shadow-lg flex items-center gap-2"
+            style={{ 
+              backgroundColor: '#2563eb', 
+              color: 'white', 
+              borderColor: '#3b82f6' 
+            }}
           >
-            {loading ? 'Loading...' : 'Refresh'}
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Loading...
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </>
+            )}
           </button>
           <button
             onClick={() => setShowCreateForm(true)}
-            style={{
-              minWidth: '120px',
-              fontSize: '14px',
-              fontWeight: '600',
-              backgroundColor: '#2563eb',
-              color: 'white',
-              border: '2px solid #3b82f6',
-              borderRadius: '8px',
-              padding: '12px 24px',
-              cursor: 'pointer',
-              zIndex: 10,
-              position: 'relative',
-              display: 'block',
-              visibility: 'visible',
-              opacity: 1,
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-              transition: 'all 0.2s ease-in-out'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#1d4ed8';
-              e.currentTarget.style.borderColor = '#2563eb';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#2563eb';
-              e.currentTarget.style.borderColor = '#3b82f6';
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border-2 border-blue-500 rounded-md transition-all duration-300 hover:bg-blue-700 hover:border-blue-400 shadow-lg flex items-center gap-2"
+            style={{ 
+              backgroundColor: '#2563eb', 
+              color: 'white', 
+              borderColor: '#3b82f6' 
             }}
           >
-            + Add User
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+            </svg>
+            Add User
           </button>
           {onClose && (
             <button
@@ -346,13 +368,56 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
         </div>
       </div>
 
+      {successMessage && (
+        <div className={`px-4 py-3 rounded mb-4 ${
+          isDarkMode 
+            ? 'bg-green-900/20 border border-green-500/50 text-green-400' 
+            : 'bg-green-100 border border-green-400 text-green-700'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              {successMessage}
+            </div>
+            <button
+              onClick={() => setSuccessMessage(null)}
+              className="ml-2 text-current hover:opacity-70"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className={`px-4 py-3 rounded mb-4 ${
           isDarkMode 
             ? 'bg-red-900/20 border border-red-500 text-red-300' 
             : 'bg-red-100 border border-red-400 text-red-700'
         }`}>
-          {error}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <div>
+                <div className="font-semibold">Error creating user:</div>
+                <div className="text-sm mt-1">{error}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-2 text-current hover:opacity-70"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 
@@ -521,13 +586,36 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-1">
             <form id="user-form" className="space-y-4 pb-4">
+            
+            {/* Password Requirements Help */}
+            {!editingUser && (
+              <div className={`p-3 rounded-md text-sm ${
+                isDarkMode 
+                  ? 'bg-blue-900/20 border border-blue-500/30 text-blue-300' 
+                  : 'bg-blue-50 border border-blue-200 text-blue-700'
+              }`}>
+                <div className="font-semibold mb-2">Password Requirements (Basic):</div>
+                <ul className="space-y-1 text-xs">
+                  <li>• At least 6 characters long</li>
+                  <li>• Contains at least one lowercase letter</li>
+                  <li>• Contains at least one number</li>
+                  <li>• Contains at least 3 different characters</li>
+                </ul>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 type="text"
                 value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, username: e.target.value });
+                  // Re-validate password if it exists
+                  if (formData.password) {
+                    handlePasswordValidation(formData.password);
+                  }
+                }}
                 required
               />
             </div>
@@ -538,7 +626,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
                 id="email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, email: e.target.value });
+                  // Re-validate password if it exists
+                  if (formData.password) {
+                    handlePasswordValidation(formData.password);
+                  }
+                }}
                 required
               />
             </div>
@@ -644,11 +738,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
           <div className="flex-shrink-0 flex justify-end space-x-2 pt-4 border-t">
             <Button
               type="button"
-              variant="outline"
               onClick={() => {
                 setShowCreateForm(false);
                 setEditingUser(null);
                 resetForm();
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg"
+              style={{ 
+                backgroundColor: '#2563eb', 
+                color: 'white', 
+                borderColor: '#3b82f6' 
               }}
             >
               Cancel
@@ -664,6 +763,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
                 } else {
                   handleCreateUser(e);
                 }
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-500 hover:border-blue-400 transition-all duration-300 shadow-lg disabled:opacity-50"
+              style={{ 
+                backgroundColor: '#2563eb', 
+                color: 'white', 
+                borderColor: '#3b82f6' 
               }}
             >
               {loading ? 'Saving...' : editingUser ? 'Update' : 'Create'}

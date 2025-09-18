@@ -223,7 +223,17 @@ public class TabController : ControllerBase
             // Get current user's department
             var currentUserId = GetCurrentUserId();
             var user = await _dbContext.Users.FindAsync(Guid.Parse(currentUserId));
-            var userDepartment = user?.Department ?? "ER"; // Default to ER if not set
+            
+            // Since this tab is being created from the Employee Relations module,
+            // it should always be assigned to the ER department
+            // Admin users without department can create tabs in any module they're working in
+            var userDepartment = user?.Department ?? "ER";
+            
+            // If user has no department (admin), set to ER since they're creating from ER module
+            if (string.IsNullOrEmpty(userDepartment))
+            {
+                userDepartment = "ER";
+            }
             
             // Create request without module requirement
             var request = new CreateLetterTypeRequest
@@ -811,6 +821,7 @@ public class TabController : ControllerBase
                 _logger.LogInformation("Querying email jobs for tab {TabId}", tabId);
                 
                 var emailJobs = await _dbContext.EmailJobs
+                    .Include(e => e.SentByUser)
                     .Where(e => e.LetterTypeDefinitionId == Guid.Parse(tabId))
                     .OrderByDescending(e => e.CreatedAt)
                     .Skip((page - 1) * pageSize)
@@ -830,6 +841,7 @@ public class TabController : ControllerBase
                     Attachments = e.Attachments,
                     Status = e.Status,
                     SentBy = e.SentBy,
+                    SentByName = $"{e.SentByUser?.FirstName} {e.SentByUser?.LastName}".Trim(),
                     EmployeeId = e.RecipientEmail ?? string.Empty, // Using email as ID for now
                     EmployeeName = e.RecipientName ?? string.Empty,
                     EmployeeEmail = e.RecipientEmail ?? string.Empty,
@@ -2097,6 +2109,111 @@ public class TabController : ControllerBase
         {
             _logger.LogError(ex, "Error saving email template for tab {TabId}", tabId);
             return StatusCode(500, ApiResponse<EmailTemplateDto>.ErrorResult("An error occurred while saving email template"));
+        }
+    }
+
+    [HttpPost("fix-department/{tabId}")]
+    public async Task<ActionResult<ApiResponse<object>>> FixTabDepartment(string tabId)
+    {
+        try
+        {
+            if (!Guid.TryParse(tabId, out var tabGuid))
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("Invalid tab ID"));
+            }
+
+            var tab = await _dbContext.LetterTypeDefinitions.FindAsync(tabGuid);
+            if (tab == null)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("Tab not found"));
+            }
+
+            // Set department to ER if it's empty
+            if (string.IsNullOrEmpty(tab.Department))
+            {
+                tab.Department = "ER";
+                tab.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+                
+                return Ok(ApiResponse<object>.SuccessResult(new { 
+                    message = "Tab department updated to ER",
+                    tabId = tabGuid,
+                    oldDepartment = "",
+                    newDepartment = "ER"
+                }));
+            }
+
+            return Ok(ApiResponse<object>.SuccessResult(new { 
+                message = "Tab department already set",
+                tabId = tabGuid,
+                department = tab.Department
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fixing tab department for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<object>.ErrorResult("An error occurred while fixing tab department"));
+        }
+    }
+
+    [HttpGet("debug-access/{tabId}")]
+    public async Task<ActionResult<ApiResponse<object>>> DebugAccess(string tabId)
+    {
+        try
+        {
+            if (!Guid.TryParse(tabId, out var tabGuid))
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("Invalid tab ID"));
+            }
+
+            var currentUserId = GetCurrentUserId();
+            var userId = Guid.Parse(currentUserId);
+            
+            // Get user info
+            var user = await _dbContext.Users.FindAsync(userId);
+            if (user == null)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("User not found"));
+            }
+
+            // Get tab info
+            var tab = await _dbContext.LetterTypeDefinitions.FindAsync(tabGuid);
+            if (tab == null)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult("Tab not found"));
+            }
+
+            // Check admin status
+            var isAdmin = await _departmentAccessService.UserCanAccessDepartment(userId, "ER") && 
+                         await _departmentAccessService.UserCanAccessDepartment(userId, "Billing");
+
+            // Check access
+            var hasAccess = await _departmentAccessService.UserCanAccessTab(userId, tabGuid);
+
+            var debugInfo = new
+            {
+                UserId = userId,
+                UserDepartment = user.Department,
+                UserDepartmentLower = user.Department?.ToLower(),
+                TabId = tabGuid,
+                TabDepartment = tab.Department,
+                TabDepartmentLower = tab.Department?.ToLower(),
+                IsAdmin = isAdmin,
+                HasAccess = hasAccess,
+                DepartmentMatch = user.Department?.ToLower() == tab.Department?.ToLower(),
+                UserRoles = await _dbContext.UserRoles
+                    .Include(ur => ur.Role)
+                    .Where(ur => ur.UserId == userId)
+                    .Select(ur => ur.Role.Name)
+                    .ToListAsync()
+            };
+
+            return Ok(ApiResponse<object>.SuccessResult(debugInfo));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in debug access for tab {TabId}", tabId);
+            return StatusCode(500, ApiResponse<object>.ErrorResult("An error occurred while debugging access"));
         }
     }
 }

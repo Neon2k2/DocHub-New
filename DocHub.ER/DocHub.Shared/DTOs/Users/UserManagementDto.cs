@@ -190,6 +190,10 @@ public class CreateUserRequest
 
 public class UpdateUserRequest
 {
+    [StringLength(50, MinimumLength = 3)]
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
     [StringLength(50, MinimumLength = 2)]
     [JsonPropertyName("firstName")]
     public string? FirstName { get; set; }

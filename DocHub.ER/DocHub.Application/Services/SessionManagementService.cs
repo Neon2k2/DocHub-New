@@ -414,8 +414,8 @@ public class SessionManagementService : ISessionManagementService
                 SessionsByOperatingSystem = sessionsByOS,
                 SessionsByDepartment = sessionsByDepartment,
                 SessionsByHour = sessionsByHour,
-                AverageSessionDuration = averageDuration,
-                LongestActiveSession = longestSession
+                AverageSessionDuration = FormatDuration(averageDuration),
+                LongestActiveSession = FormatDuration(longestSession)
             };
         }
         catch (Exception ex)
@@ -1036,6 +1036,23 @@ public class SessionManagementService : ISessionManagementService
     {
         // TODO: Implement IP geolocation lookup
         return null;
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration == TimeSpan.Zero)
+            return "0m";
+
+        var totalHours = (int)duration.TotalHours;
+        var minutes = duration.Minutes;
+        var seconds = duration.Seconds;
+
+        if (totalHours > 0)
+            return $"{totalHours}h {minutes}m";
+        else if (minutes > 0)
+            return $"{minutes}m {seconds}s";
+        else
+            return $"{seconds}s";
     }
 
     private async Task<bool> LogSessionActivityAsync(Guid userId, string action, string details, string ipAddress, string userAgent)

@@ -125,9 +125,10 @@ export function EnhancedEmailDialog({
         ));
         
         // Show toast notification for status changes
-        if (update.status !== 'pending') {
-          toast.success(`Email status updated to ${update.status} for ${update.employeeName || 'employee'}`);
-        }
+        // Note: Individual email status notifications are handled by NotificationDropdown
+        // if (update.status !== 'pending') {
+        //   toast.success(`Email status updated to ${update.status} for ${update.employeeName || 'employee'}`);
+        // }
       };
       
       signalRService.onEmailStatusUpdated(emailStatusCallback);
@@ -585,7 +586,8 @@ export function EnhancedEmailDialog({
 
       setSentJobs(updatedJobs);
       onEmailsSent(updatedJobs);
-      toast.success(`Successfully sent ${successfulCount} out of ${emailJobs.length} emails`);
+      // Note: Individual email notifications are handled by NotificationDropdown
+      // toast.success(`Successfully sent ${successfulCount} out of ${emailJobs.length} emails`);
     } catch (error) {
       console.error('Failed to send emails:', error);
       toast.error('Failed to send emails');
