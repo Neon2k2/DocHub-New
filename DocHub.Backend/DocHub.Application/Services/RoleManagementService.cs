@@ -103,7 +103,7 @@ public class RoleManagementService : IRoleManagementService
                     IsSystemRole = r.IsSystemRole,
                     CreatedAt = r.CreatedAt,
                     UpdatedAt = r.UpdatedAt,
-                    UserCount = r.UserRoles.Count(ur => !ur.IsExpired),
+                    UserCount = r.UserRoles.Count(ur => !ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow),
                     Permissions = r.RolePermissions.Where(rp => rp.Permission != null).Select(rp => new PermissionDto
                     {
                         Id = rp.Permission.Id,
@@ -157,7 +157,7 @@ public class RoleManagementService : IRoleManagementService
                 IsSystemRole = role.IsSystemRole,
                 CreatedAt = role.CreatedAt,
                 UpdatedAt = role.UpdatedAt,
-                UserCount = role.UserRoles.Count(ur => !ur.IsExpired),
+                UserCount = role.UserRoles.Count(ur => !ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow),
                 Permissions = role.RolePermissions.Select(rp => new PermissionDto
                 {
                     Id = rp.Permission.Id,
@@ -708,7 +708,7 @@ public class RoleManagementService : IRoleManagementService
                     AssignedAt = ur.AssignedAt,
                     AssignedBy = ur.AssignedByUser != null ? ur.AssignedByUser.Username : null,
                     ExpiresAt = ur.ExpiresAt,
-                    IsExpired = ur.IsExpired
+                    IsExpired = ur.ExpiresAt.HasValue && ur.ExpiresAt <= DateTime.UtcNow
                 })
                 .OrderBy(ur => ur.RoleName)
                 .ToListAsync();
@@ -738,7 +738,7 @@ public class RoleManagementService : IRoleManagementService
                     AssignedAt = ur.AssignedAt,
                     AssignedBy = ur.AssignedByUser != null ? ur.AssignedByUser.Username : null,
                     ExpiresAt = ur.ExpiresAt,
-                    IsExpired = ur.IsExpired
+                    IsExpired = ur.ExpiresAt.HasValue && ur.ExpiresAt <= DateTime.UtcNow
                 })
                 .OrderBy(ur => ur.UserName)
                 .ToListAsync();
@@ -872,7 +872,7 @@ public class RoleManagementService : IRoleManagementService
                 .Include(ur => ur.Role)
                 .ThenInclude(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
-                .Where(ur => ur.UserId == userId && !ur.IsExpired)
+                .Where(ur => ur.UserId == userId && (!ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow))
                 .AnyAsync(ur => ur.Role.RolePermissions.Any(rp => rp.Permission.Name == permissionName && rp.Permission.IsActive));
         }
         catch (Exception ex)
@@ -888,7 +888,7 @@ public class RoleManagementService : IRoleManagementService
         {
             return await _dbContext.UserRoles
                 .Include(ur => ur.Role)
-                .Where(ur => ur.UserId == userId && !ur.IsExpired)
+                .Where(ur => ur.UserId == userId && (!ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow))
                 .AnyAsync(ur => ur.Role.Name == roleName && ur.Role.IsActive);
         }
         catch (Exception ex)
@@ -906,7 +906,7 @@ public class RoleManagementService : IRoleManagementService
                 .Include(ur => ur.Role)
                 .ThenInclude(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
-                .Where(ur => ur.UserId == userId && !ur.IsExpired)
+                .Where(ur => ur.UserId == userId && (!ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow))
                 .SelectMany(ur => ur.Role.RolePermissions)
                 .Select(rp => rp.Permission.Name)
                 .Distinct()
@@ -925,7 +925,7 @@ public class RoleManagementService : IRoleManagementService
         {
             return await _dbContext.UserRoles
                 .Include(ur => ur.Role)
-                .Where(ur => ur.UserId == userId && !ur.IsExpired)
+                .Where(ur => ur.UserId == userId && (!ur.ExpiresAt.HasValue || ur.ExpiresAt > DateTime.UtcNow))
                 .Select(ur => ur.Role.Name)
                 .ToListAsync();
         }

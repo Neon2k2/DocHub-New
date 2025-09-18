@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using DocHub.Shared.DTOs.Users;
 
 namespace DocHub.Shared.DTOs.Auth;
 
@@ -26,7 +27,7 @@ public class LoginResponse
     public DateTime ExpiresAt { get; set; }
 
     [JsonPropertyName("user")]
-    public UserDto User { get; set; } = null!;
+    public DocHub.Shared.DTOs.Users.UserDto User { get; set; } = null!;
 
     [JsonPropertyName("moduleAccess")]
     public List<string> ModuleAccess { get; set; } = new List<string>();

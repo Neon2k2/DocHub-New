@@ -2,6 +2,7 @@ using DocHub.Core.Entities;
 using DocHub.Core.Interfaces;
 using DocHub.Core.Interfaces.Repositories;
 using DocHub.Shared.DTOs.Auth;
+using DocHub.Shared.DTOs.Users;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -225,7 +226,7 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    public async Task<UserDto> GetUserAsync(string userId)
+    public async Task<DocHub.Shared.DTOs.Users.UserDto> GetUserAsync(string userId)
     {
         try
         {
@@ -244,7 +245,7 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    public async Task<UserDto> GetUserByEmailAsync(string email)
+    public async Task<DocHub.Shared.DTOs.Users.UserDto> GetUserByEmailAsync(string email)
     {
         try
         {
@@ -390,19 +391,33 @@ public class AuthenticationService : IAuthenticationService
         return BCrypt.Net.BCrypt.Verify(password, hash);
     }
 
-    private UserDto MapToUserDto(User user)
+    private DocHub.Shared.DTOs.Users.UserDto MapToUserDto(User user)
     {
-        return new UserDto
+        var roles = GetUserRoles(user);
+        var isAdmin = roles.Contains("Admin");
+        
+        return new DocHub.Shared.DTOs.Users.UserDto
         {
             Id = user.Id,
             Username = user.Username,
             Email = user.Email,
             FirstName = user.FirstName,
             LastName = user.LastName,
+            Department = user.Department,
             IsActive = user.IsActive,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
-            Roles = GetUserRoles(user)
+            Roles = roles,
+            Permissions = new UserPermissionsDto
+            {
+                IsAdmin = isAdmin,
+                CanAccessER = isAdmin || user.Department?.ToLower() == "er",
+                CanAccessBilling = isAdmin || user.Department?.ToLower() == "billing",
+                CanManageUsers = isAdmin,
+                CanManageRoles = isAdmin,
+                CanViewAuditLogs = isAdmin,
+                CanManageSystemSettings = isAdmin
+            }
         };
     }
 

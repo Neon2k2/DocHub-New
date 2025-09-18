@@ -12,6 +12,7 @@ import { Separator } from '../ui/separator';
 import { Employee, apiService } from '../../services/api.service';
 import { useEmployees } from '../../hooks/useEmployees';
 import { ExcelData } from '../../services/excel.service';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface EmployeeSelectorProps {
   selectedEmployees: Employee[];
@@ -32,6 +33,7 @@ export function EmployeeSelector({
   tabId,
   excelData
 }: EmployeeSelectorProps) {
+  const { isDarkMode } = useTheme();
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -339,7 +341,7 @@ export function EmployeeSelector({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-               <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
+               <CardTitle className={`flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                  <Users className="h-5 w-5 text-neon-blue" />
                  Select Employees
                </CardTitle>
@@ -373,7 +375,11 @@ export function EmployeeSelector({
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilters(!showFilters)}
-                className="border-2 border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
+                className={`border-2 transition-colors ${
+                  isDarkMode 
+                    ? 'border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white' 
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                }`}
               >
                 <Filter className="h-4 w-4 mr-1" />
                 Filters
@@ -486,17 +492,17 @@ export function EmployeeSelector({
                 <table className="w-full text-sm">
                   <thead className="bg-muted sticky top-0">
                     <tr>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                          <Checkbox
                            checked={employees.length > 0 && employees.every(emp => isEmployeeSelected(emp.id))}
                            onCheckedChange={handleSelectAll}
                          />
                        </th>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Employee</th>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">ID</th>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Designation</th>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Department</th>
-                       <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Email</th>
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Employee</th>
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>ID</th>
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Designation</th>
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Department</th>
+                       <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Email</th>
                       {shouldUseExcelData && excelData?.headers && excelData.headers
                         .filter(header => {
                           const mappedFields = ['EMP ID', 'Employee ID', 'ID', 'EmpId', 'EmployeeId', 
@@ -507,12 +513,12 @@ export function EmployeeSelector({
                           return !mappedFields.includes(header);
                         })
                         .map(header => (
-                           <th key={header} className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">
+                           <th key={header} className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                              {header}
                            </th>
                         ))
                       }
-                      <th className="px-3 py-2 text-left font-medium border-b text-gray-900 dark:text-white">Status</th>
+                      <th className={`px-3 py-2 text-left font-medium border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -549,7 +555,7 @@ export function EmployeeSelector({
                               />
                             ) : (
                                <span 
-                                 className={`font-medium text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                                 className={`font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'} ${isEditMode ? `cursor-pointer px-2 py-1 rounded ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}` : ''}`}
                                  onClick={() => handleCellClick(employee.id, 'name', employee.name)}
                                >
                                  {employee.name}
@@ -589,7 +595,7 @@ export function EmployeeSelector({
                             />
                           ) : (
                              <span 
-                               className={`text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                               className={`${isDarkMode ? 'text-white' : 'text-gray-900'} ${isEditMode ? `cursor-pointer px-2 py-1 rounded ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}` : ''}`}
                                onClick={() => handleCellClick(employee.id, 'designation', employee.designation)}
                              >
                                {employee.designation}
@@ -608,7 +614,7 @@ export function EmployeeSelector({
                             />
                           ) : (
                              <span 
-                               className={`text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                               className={`${isDarkMode ? 'text-white' : 'text-gray-900'} ${isEditMode ? `cursor-pointer px-2 py-1 rounded ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}` : ''}`}
                                onClick={() => handleCellClick(employee.id, 'department', employee.department)}
                              >
                                {employee.department}
@@ -629,7 +635,7 @@ export function EmployeeSelector({
                             <div className="flex items-center gap-1">
                               <Mail className="h-3 w-3 text-gray-500 dark:text-gray-400" />
                                <span 
-                                 className={`text-xs text-gray-900 dark:text-white ${isEditMode ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded' : ''}`}
+                                 className={`text-xs ${isDarkMode ? 'text-white' : 'text-gray-900'} ${isEditMode ? `cursor-pointer px-2 py-1 rounded ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}` : ''}`}
                                  onClick={() => handleCellClick(employee.id, 'email', employee.email)}
                                >
                                  {employee.email}
@@ -655,7 +661,7 @@ export function EmployeeSelector({
                             return !mappedFields.includes(header);
                           })
                           .map(header => (
-                             <td key={header} className="px-3 py-2 border-b text-gray-900 dark:text-white">
+                             <td key={header} className={`px-3 py-2 border-b ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                                {employee[header] || ''}
                              </td>
                           ))

@@ -9,6 +9,7 @@ import { excelService, ExcelData } from '../../services/excel.service';
 import { notify } from '../../utils/notifications';
 import { useAuth } from '../../contexts/AuthContext';
 import { UnauthorizedPage } from './UnauthorizedPage';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface ExcelUploadDialogProps {
   open: boolean;
@@ -26,6 +27,7 @@ export function ExcelUploadDialog({
   onUploadSuccess 
 }: ExcelUploadDialogProps) {
   const { hasPermission } = useAuth();
+  const { isDarkMode } = useTheme();
   
   // Check if user has permission to upload Excel files
   if (!hasPermission('canAccessER')) {
@@ -336,7 +338,7 @@ export function ExcelUploadDialog({
             variant="outline" 
             onClick={handleClose} 
             disabled={uploading}
-            className="text-gray-900 border-gray-300 hover:bg-gray-100"
+            className={`${isDarkMode ? 'text-white border-gray-600 hover:bg-gray-700' : 'text-gray-900 border-gray-300 hover:bg-gray-100'}`}
           >
             Cancel
           </Button>

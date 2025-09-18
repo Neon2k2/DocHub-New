@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { User } from 'lucide-react';
 import { 
   UserDto, 
   CreateUserRequest, 
@@ -8,12 +9,18 @@ import {
   PasswordValidationResult,
   apiService 
 } from '../../services/api.service';
+import { useTheme } from '../../contexts/ThemeContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 interface UserManagementProps {
   onClose?: () => void;
 }
 
 const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
+  const { isDarkMode } = useTheme();
   const [users, setUsers] = useState<UserDto[]>([]);
   const [roles, setRoles] = useState<RoleDto[]>([]);
   const [permissions, setPermissions] = useState<PermissionDto[]>([]);
@@ -22,6 +29,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDto | null>(null);
   const [passwordValidation, setPasswordValidation] = useState<PasswordValidationResult | null>(null);
+
 
   // Form states
   const [formData, setFormData] = useState<CreateUserRequest>({
@@ -40,21 +48,55 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
 
   const loadData = async () => {
     setLoading(true);
+    setError(null);
     try {
+      console.log('🔄 [UserManagement] Starting to load data...');
+      
       const [usersResponse, rolesResponse] = await Promise.all([
         apiService.getUsers({ page: 1, pageSize: 100 }),
         apiService.getRoles({ page: 1, pageSize: 100 })
       ]);
 
+      console.log('🔍 [UserManagement] Users response:', usersResponse);
+      console.log('🔍 [UserManagement] Users response.data:', usersResponse.data);
+      console.log('🔍 [UserManagement] Users response.data.data:', usersResponse.data?.data);
+      console.log('🔍 [UserManagement] Roles response:', rolesResponse);
+      console.log('🔍 [UserManagement] Roles response.data:', rolesResponse.data);
+      console.log('🔍 [UserManagement] Roles response.data.data:', rolesResponse.data?.data);
+
       if (usersResponse.success) {
-        setUsers(usersResponse.data?.items || []);
+        // Try different possible response structures
+        const users = usersResponse.data?.data?.items || 
+                     usersResponse.data?.items || 
+                     usersResponse.data || 
+                     [];
+        console.log('🔍 [UserManagement] Extracted users:', users);
+        console.log('🔍 [UserManagement] Users count:', users.length);
+        console.log('🔍 [UserManagement] Users type:', typeof users, Array.isArray(users));
+        setUsers(Array.isArray(users) ? users : []);
+      } else {
+        console.error('❌ [UserManagement] Users response failed:', usersResponse);
+        setError(`Failed to load users: ${usersResponse.message || 'Unknown error'}`);
       }
+
       if (rolesResponse.success) {
-        setRoles(rolesResponse.data?.items || []);
+        // Try different possible response structures
+        const roles = rolesResponse.data?.data?.items || 
+                     rolesResponse.data?.items || 
+                     rolesResponse.data || 
+                     [];
+        console.log('🔍 [UserManagement] Extracted roles:', roles);
+        console.log('🔍 [UserManagement] Roles count:', roles.length);
+        console.log('🔍 [UserManagement] Roles type:', typeof roles, Array.isArray(roles));
+        setRoles(Array.isArray(roles) ? roles : []);
+      } else {
+        console.error('❌ [UserManagement] Roles response failed:', rolesResponse);
+        setError(`Failed to load roles: ${rolesResponse.message || 'Unknown error'}`);
       }
     } catch (err) {
-      setError('Failed to load data');
-      console.error('Error loading data:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to load data: ${errorMessage}`);
+      console.error('❌ [UserManagement] Error loading data:', err);
     } finally {
       setLoading(false);
     }
@@ -149,21 +191,44 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
     }
   };
 
-  const handlePasswordValidation = async (password: string) => {
-    if (!password || !formData.username || !formData.email) return;
-
-    try {
-      const response = await apiService.validatePassword({
-        password,
-        username: formData.username,
-        email: formData.email
-      });
-      if (response.success) {
-        setPasswordValidation(response.data!);
-      }
-    } catch (err) {
-      console.error('Error validating password:', err);
+  const handlePasswordValidation = (password: string) => {
+    if (!password) {
+      setPasswordValidation(null);
+      return;
     }
+
+    const errors: string[] = [];
+    
+    if (password.length < 8) {
+      errors.push('Password must be at least 8 characters long');
+    }
+    
+    if (!/[A-Z]/.test(password)) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+    
+    if (!/[a-z]/.test(password)) {
+      errors.push('Password must contain at least one lowercase letter');
+    }
+    
+    if (!/\d/.test(password)) {
+      errors.push('Password must contain at least one number');
+    }
+    
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      errors.push('Password must contain at least one special character');
+    }
+
+    let strength: 'weak' | 'medium' | 'strong' = 'weak';
+    if (errors.length === 0) {
+      strength = password.length >= 12 ? 'strong' : 'medium';
+    }
+
+    setPasswordValidation({
+      isValid: errors.length === 0,
+      errors,
+      strength
+    });
   };
 
   const resetForm = () => {
@@ -215,18 +280,65 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
+        <div>
+          <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+            User Management
+          </h2>
+          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
+            {users.length} user{users.length !== 1 ? 's' : ''} found
+          </p>
+        </div>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowCreateForm(true)}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            onClick={loadData}
+            disabled={loading}
+            className={`px-4 py-2 text-sm font-medium border rounded-md transition-colors ${
+              isDarkMode 
+                ? 'text-gray-300 bg-gray-700 border-gray-600 hover:bg-gray-600 disabled:opacity-50' 
+                : 'text-gray-700 bg-gray-100 border-gray-300 hover:bg-gray-200 disabled:opacity-50'
+            }`}
           >
-            Add User
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+          <button
+            onClick={() => setShowCreateForm(true)}
+            style={{
+              minWidth: '120px',
+              fontSize: '14px',
+              fontWeight: '600',
+              backgroundColor: '#2563eb',
+              color: 'white',
+              border: '2px solid #3b82f6',
+              borderRadius: '8px',
+              padding: '12px 24px',
+              cursor: 'pointer',
+              zIndex: 10,
+              position: 'relative',
+              display: 'block',
+              visibility: 'visible',
+              opacity: 1,
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+              transition: 'all 0.2s ease-in-out'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#1d4ed8';
+              e.currentTarget.style.borderColor = '#2563eb';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#2563eb';
+              e.currentTarget.style.borderColor = '#3b82f6';
+            }}
+          >
+            + Add User
           </button>
           {onClose && (
             <button
               onClick={onClose}
-              className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+              className={`px-4 py-2 rounded font-medium transition-colors ${
+                isDarkMode 
+                  ? 'bg-gray-700 text-white hover:bg-gray-600 border border-gray-600' 
+                  : 'bg-gray-500 text-white hover:bg-gray-600'
+              }`}
             >
               Close
             </button>
@@ -235,46 +347,90 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className={`px-4 py-3 rounded mb-4 ${
+          isDarkMode 
+            ? 'bg-red-900/20 border border-red-500 text-red-300' 
+            : 'bg-red-100 border border-red-400 text-red-700'
+        }`}>
           {error}
         </div>
       )}
 
       {/* User List */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                User
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Department
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Roles
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user) => (
-              <tr key={user.id}>
+      <div className={`shadow rounded-lg overflow-hidden ${
+        isDarkMode 
+          ? 'bg-gray-800 border border-gray-700' 
+          : 'bg-white'
+      }`}>
+        {users.length === 0 && !loading ? (
+          <div className="text-center py-12">
+            <div className={`text-lg font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-900'} mb-2`}>
+              No users found
+            </div>
+            <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-4`}>
+              {error ? error : 'Try refreshing the data or add a new user.'}
+            </div>
+            <button
+              onClick={loadData}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                isDarkMode 
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              Refresh Data
+            </button>
+          </div>
+        ) : (
+          <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
+            <thead className={isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}>
+              <tr>
+                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                }`}>
+                  User
+                </th>
+                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                }`}>
+                  Department
+                </th>
+                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                }`}>
+                  Roles
+                </th>
+                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                }`}>
+                  Status
+                </th>
+                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                }`}>
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
+              {users.map((user) => (
+              <tr key={user.id} className={isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                       {user.firstName} {user.lastName}
                     </div>
-                    <div className="text-sm text-gray-500">{user.email}</div>
+                    <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {user.email}
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    isDarkMode 
+                      ? 'bg-blue-900/30 text-blue-300 border border-blue-700' 
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
                     {user.department}
                   </span>
                 </td>
@@ -283,7 +439,11 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
                     {user.roles.map((role, index) => (
                       <span
                         key={index}
-                        className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          isDarkMode 
+                            ? 'bg-green-900/30 text-green-300 border border-green-700' 
+                            : 'bg-green-100 text-green-800'
+                        }`}
                       >
                         {role}
                       </span>
@@ -294,8 +454,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
                   <span
                     className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                       user.isActive
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
+                        ? isDarkMode 
+                          ? 'bg-green-900/30 text-green-300 border border-green-700'
+                          : 'bg-green-100 text-green-800'
+                        : isDarkMode 
+                          ? 'bg-red-900/30 text-red-300 border border-red-700'
+                          : 'bg-red-100 text-red-800'
                     }`}
                   >
                     {user.isActive ? 'Active' : 'Inactive'}
@@ -305,196 +469,208 @@ const UserManagement: React.FC<UserManagementProps> = ({ onClose }) => {
                   <div className="flex gap-2">
                     <button
                       onClick={() => startEdit(user)}
-                      className="text-blue-600 hover:text-blue-900"
+                      className={`transition-colors ${
+                        isDarkMode 
+                          ? 'text-blue-400 hover:text-blue-300' 
+                          : 'text-blue-600 hover:text-blue-900'
+                      }`}
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleToggleUserStatus(user.id)}
-                      className="text-yellow-600 hover:text-yellow-900"
+                      className={`transition-colors ${
+                        isDarkMode 
+                          ? 'text-yellow-400 hover:text-yellow-300' 
+                          : 'text-yellow-600 hover:text-yellow-900'
+                      }`}
                     >
                       {user.isActive ? 'Deactivate' : 'Activate'}
                     </button>
                     <button
                       onClick={() => handleDeleteUser(user.id)}
-                      className="text-red-600 hover:text-red-900"
+                      className={`transition-colors ${
+                        isDarkMode 
+                          ? 'text-red-400 hover:text-red-300' 
+                          : 'text-red-600 hover:text-red-900'
+                      }`}
                     >
                       Delete
                     </button>
                   </div>
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Create/Edit Form Modal */}
-      {showCreateForm && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                {editingUser ? 'Edit User' : 'Create User'}
-              </h3>
-              <form onSubmit={editingUser ? handleUpdateUser : handleCreateUser}>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      Username
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                      required
-                    />
-                  </div>
+      <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
+        <DialogContent className="dialog-panel max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              {editingUser ? 'Edit User' : 'Create User'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingUser ? 'Update user information and permissions' : 'Add a new user to the system'}
+            </DialogDescription>
+          </DialogHeader>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      First Name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.firstName}
-                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      Last Name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.lastName}
-                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      Department
-                    </label>
-                    <select
-                      value={formData.department}
-                      onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                      required
-                    >
-                      <option value="ER">ER</option>
-                      <option value="Billing">Billing</option>
-                    </select>
-                  </div>
-
-                  {!editingUser && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        value={formData.password}
-                        onChange={(e) => {
-                          setFormData({ ...formData, password: e.target.value });
-                          handlePasswordValidation(e.target.value);
-                        }}
-                        className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
-                        required
-                      />
-                      {passwordValidation && (
-                        <div className="mt-2">
-                          <div className={`text-sm ${getPasswordStrengthColor(passwordValidation.strength)}`}>
-                            Password Strength: {passwordValidation.strength.toUpperCase()}
-                          </div>
-                          {passwordValidation.errors.length > 0 && (
-                            <ul className="text-sm text-red-500 mt-1">
-                              {passwordValidation.errors.map((error, index) => (
-                                <li key={index}>• {error}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      Roles
-                    </label>
-                    <div className="mt-2 space-y-2">
-                      {roles.map((role) => (
-                        <label key={role.id} className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={formData.roleIds.includes(role.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({
-                                  ...formData,
-                                  roleIds: [...formData.roleIds, role.id]
-                                });
-                              } else {
-                                setFormData({
-                                  ...formData,
-                                  roleIds: formData.roleIds.filter(id => id !== role.id)
-                                });
-                              }
-                            }}
-                            className="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">{role.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end space-x-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowCreateForm(false);
-                      setEditingUser(null);
-                      resetForm();
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Saving...' : editingUser ? 'Update' : 'Create'}
-                  </button>
-                </div>
-              </form>
+          <div className="flex-1 min-h-0 overflow-y-auto px-1">
+            <form id="user-form" className="space-y-4 pb-4">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                value={formData.username}
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                required
+              />
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="firstName">First Name</Label>
+              <Input
+                id="firstName"
+                type="text"
+                value={formData.firstName}
+                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Last Name</Label>
+              <Input
+                id="lastName"
+                type="text"
+                value={formData.lastName}
+                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="department">Department</Label>
+              <select
+                id="department"
+                value={formData.department}
+                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                required
+              >
+                <option value="ER">ER</option>
+                <option value="Billing">Billing</option>
+              </select>
+            </div>
+
+            {!editingUser && (
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value });
+                    handlePasswordValidation(e.target.value);
+                  }}
+                  required
+                />
+                {passwordValidation && (
+                  <div className="space-y-1">
+                    <div className={`text-sm ${getPasswordStrengthColor(passwordValidation.strength)}`}>
+                      Password Strength: {passwordValidation.strength.toUpperCase()}
+                    </div>
+                    {passwordValidation.errors.length > 0 && (
+                      <ul className="text-sm text-red-500">
+                        {passwordValidation.errors.map((error, index) => (
+                          <li key={index}>• {error}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Roles</Label>
+              <div className="space-y-2">
+                {roles.map((role) => (
+                  <label key={role.id} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.roleIds.includes(role.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
+                            roleIds: [...formData.roleIds, role.id]
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            roleIds: formData.roleIds.filter(id => id !== role.id)
+                          });
+                        }
+                      }}
+                      className="h-4 w-4 rounded border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    />
+                    <span className="text-sm">{role.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            </form>
           </div>
-        </div>
-      )}
+
+          <div className="flex-shrink-0 flex justify-end space-x-2 pt-4 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowCreateForm(false);
+                setEditingUser(null);
+                resetForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="user-form"
+              disabled={loading}
+              onClick={(e) => {
+                e.preventDefault();
+                if (editingUser) {
+                  handleUpdateUser(e);
+                } else {
+                  handleCreateUser(e);
+                }
+              }}
+            >
+              {loading ? 'Saving...' : editingUser ? 'Update' : 'Create'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

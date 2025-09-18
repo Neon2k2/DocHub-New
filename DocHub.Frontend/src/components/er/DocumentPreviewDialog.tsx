@@ -18,6 +18,7 @@ import { notify } from '../../utils/notifications';
 import { handleError } from '../../utils/errorHandler';
 import { Loading } from '../ui/loading';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 
 interface DocumentPreviewDialogProps {
@@ -36,6 +37,7 @@ export function DocumentPreviewDialog({
   onDocumentsGenerated
 }: DocumentPreviewDialogProps) {
   const { hasPermission } = useAuth();
+  const { isDarkMode } = useTheme();
   
   // Check if user has permission to view documents
   if (!hasPermission('canAccessER')) {
@@ -513,7 +515,7 @@ export function DocumentPreviewDialog({
                         </div>
                       ) : (
                         <div 
-                          className="bg-white text-black p-8 rounded-lg shadow-lg min-h-[600px]"
+                          className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'} p-8 rounded-lg shadow-lg min-h-[600px]`}
                           dangerouslySetInnerHTML={{ __html: currentDocument.content }}
                         />
                       )}

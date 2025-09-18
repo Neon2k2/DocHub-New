@@ -61,7 +61,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             var session = await _dbContext.UserSessions.FindAsync(sessionId);
-            if (session == null || !session.IsActive || session.IsExpired)
+            if (session == null || !session.IsActive || session.ExpiresAt <= DateTime.UtcNow || session.LoggedOutAt != null)
             {
                 return false;
             }
@@ -264,7 +264,7 @@ public class SessionManagementService : ISessionManagementService
 
             if (activeOnly)
             {
-                query = query.Where(s => s.IsActive && !s.IsExpired);
+                query = query.Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null);
             }
 
             var sessions = await query
@@ -287,12 +287,11 @@ public class SessionManagementService : ISessionManagementService
         {
             var sessions = await _dbContext.UserSessions
                 .Include(s => s.User)
-                .Where(s => s.IsActive && !s.IsExpired)
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .OrderByDescending(s => s.LastActivityAt)
-                .Select(s => MapToUserSessionDto(s))
                 .ToListAsync();
 
-            return sessions;
+            return sessions.Select(MapToUserSessionDto).ToList();
         }
         catch (Exception ex)
         {
@@ -307,12 +306,11 @@ public class SessionManagementService : ISessionManagementService
         {
             var sessions = await _dbContext.UserSessions
                 .Include(s => s.User)
-                .Where(s => s.IsExpired)
+                .Where(s => s.ExpiresAt <= DateTime.UtcNow || s.LoggedOutAt != null)
                 .OrderByDescending(s => s.LastActivityAt)
-                .Select(s => MapToUserSessionDto(s))
                 .ToListAsync();
 
-            return sessions;
+            return sessions.Select(MapToUserSessionDto).ToList();
         }
         catch (Exception ex)
         {
@@ -325,46 +323,98 @@ public class SessionManagementService : ISessionManagementService
     {
         try
         {
+            var now = DateTime.UtcNow;
+            var today = now.Date;
+            var weekStart = today.AddDays(-(int)today.DayOfWeek);
+            var monthStart = new DateTime(today.Year, today.Month, 1);
+
             var totalSessions = await _dbContext.UserSessions.CountAsync();
-            var activeSessions = await _dbContext.UserSessions.CountAsync(s => s.IsActive && !s.IsExpired);
-            var expiredSessions = await _dbContext.UserSessions.CountAsync(s => s.IsExpired);
+            var activeSessions = await _dbContext.UserSessions.CountAsync(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null);
+            var expiredSessions = await _dbContext.UserSessions.CountAsync(s => s.ExpiresAt <= DateTime.UtcNow || s.LoggedOutAt != null);
+
+            // Today's sessions
+            var totalSessionsToday = await _dbContext.UserSessions.CountAsync(s => s.CreatedAt >= today);
+            var uniqueUsersToday = await _dbContext.UserSessions
+                .Where(s => s.CreatedAt >= today)
+                .Select(s => s.UserId)
+                .Distinct()
+                .CountAsync();
+
+            // This week's sessions
+            var totalSessionsThisWeek = await _dbContext.UserSessions.CountAsync(s => s.CreatedAt >= weekStart);
+            var uniqueUsersThisWeek = await _dbContext.UserSessions
+                .Where(s => s.CreatedAt >= weekStart)
+                .Select(s => s.UserId)
+                .Distinct()
+                .CountAsync();
+
+            // This month's sessions
+            var totalSessionsThisMonth = await _dbContext.UserSessions.CountAsync(s => s.CreatedAt >= monthStart);
+            var uniqueUsersThisMonth = await _dbContext.UserSessions
+                .Where(s => s.CreatedAt >= monthStart)
+                .Select(s => s.UserId)
+                .Distinct()
+                .CountAsync();
 
             var sessionsByDeviceType = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .GroupBy(s => s.DeviceType ?? "Unknown")
                 .ToDictionaryAsync(g => g.Key, g => g.Count());
 
             var sessionsByBrowser = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .GroupBy(s => s.BrowserName ?? "Unknown")
                 .ToDictionaryAsync(g => g.Key, g => g.Count());
 
             var sessionsByOS = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .GroupBy(s => s.OperatingSystem ?? "Unknown")
                 .ToDictionaryAsync(g => g.Key, g => g.Count());
 
-            var averageDuration = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
-                .Select(s => s.LastActivityAt - s.CreatedAt)
-                .DefaultIfEmpty()
-                .AverageAsync(d => d.TotalSeconds);
+            // Sessions by department
+            var sessionsByDepartment = await _dbContext.UserSessions
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
+                .Include(s => s.User)
+                .GroupBy(s => s.User.Department ?? "Unknown")
+                .ToDictionaryAsync(g => g.Key, g => g.Count());
 
-            var longestSession = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
+            // Sessions by hour (for today)
+            var sessionsByHour = await _dbContext.UserSessions
+                .Where(s => s.CreatedAt >= today)
+                .GroupBy(s => s.CreatedAt.Hour)
+                .ToDictionaryAsync(g => g.Key.ToString(), g => g.Count());
+
+            // Get active sessions and calculate durations in memory
+            var activeSessionsForStats = await _dbContext.UserSessions
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
+                .Select(s => new { s.LastActivityAt, s.CreatedAt })
+                .ToListAsync();
+
+            var durations = activeSessionsForStats
                 .Select(s => s.LastActivityAt - s.CreatedAt)
-                .DefaultIfEmpty()
-                .MaxAsync(d => d);
+                .ToList();
+
+            var averageDuration = durations.Any() ? TimeSpan.FromSeconds(durations.Average(d => d.TotalSeconds)) : TimeSpan.Zero;
+            var longestSession = durations.Any() ? durations.Max() : TimeSpan.Zero;
 
             return new SessionStatsDto
             {
                 TotalSessions = totalSessions,
+                TotalActiveSessions = activeSessions,
                 ActiveSessions = activeSessions,
                 ExpiredSessions = expiredSessions,
+                TotalSessionsToday = totalSessionsToday,
+                TotalSessionsThisWeek = totalSessionsThisWeek,
+                TotalSessionsThisMonth = totalSessionsThisMonth,
+                UniqueUsersToday = uniqueUsersToday,
+                UniqueUsersThisWeek = uniqueUsersThisWeek,
+                UniqueUsersThisMonth = uniqueUsersThisMonth,
                 SessionsByDeviceType = sessionsByDeviceType,
                 SessionsByBrowser = sessionsByBrowser,
                 SessionsByOperatingSystem = sessionsByOS,
-                AverageSessionDuration = TimeSpan.FromSeconds(averageDuration),
+                SessionsByDepartment = sessionsByDepartment,
+                SessionsByHour = sessionsByHour,
+                AverageSessionDuration = averageDuration,
                 LongestActiveSession = longestSession
             };
         }
@@ -380,7 +430,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             return await _dbContext.UserSessions
-                .CountAsync(s => s.IsActive && !s.IsExpired);
+                .CountAsync(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null);
         }
         catch (Exception ex)
         {
@@ -394,7 +444,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             return await _dbContext.UserSessions
-                .CountAsync(s => s.UserId == userId && s.IsActive && !s.IsExpired);
+                .CountAsync(s => s.UserId == userId && s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null);
         }
         catch (Exception ex)
         {
@@ -407,13 +457,13 @@ public class SessionManagementService : ISessionManagementService
     {
         try
         {
-            var averageSeconds = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
-                .Select(s => s.LastActivityAt - s.CreatedAt)
-                .DefaultIfEmpty()
-                .AverageAsync(d => d.TotalSeconds);
+            var sessions = await _dbContext.UserSessions
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
+                .Select(s => new { s.LastActivityAt, s.CreatedAt })
+                .ToListAsync();
 
-            return TimeSpan.FromSeconds(averageSeconds);
+            var durations = sessions.Select(s => s.LastActivityAt - s.CreatedAt).ToList();
+            return durations.Any() ? TimeSpan.FromSeconds(durations.Average(d => d.TotalSeconds)) : TimeSpan.Zero;
         }
         catch (Exception ex)
         {
@@ -426,13 +476,13 @@ public class SessionManagementService : ISessionManagementService
     {
         try
         {
-            var longestDuration = await _dbContext.UserSessions
-                .Where(s => s.IsActive && !s.IsExpired)
-                .Select(s => s.LastActivityAt - s.CreatedAt)
-                .DefaultIfEmpty()
-                .MaxAsync(d => d);
+            var sessions = await _dbContext.UserSessions
+                .Where(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
+                .Select(s => new { s.LastActivityAt, s.CreatedAt })
+                .ToListAsync();
 
-            return longestDuration;
+            var durations = sessions.Select(s => s.LastActivityAt - s.CreatedAt).ToList();
+            return durations.Any() ? durations.Max() : TimeSpan.Zero;
         }
         catch (Exception ex)
         {
@@ -446,7 +496,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             var session = await _dbContext.UserSessions.FindAsync(sessionId);
-            return session != null && session.IsActive && !session.IsExpired;
+            return session != null && session.IsActive && session.ExpiresAt > DateTime.UtcNow && session.LoggedOutAt == null;
         }
         catch (Exception ex)
         {
@@ -476,7 +526,7 @@ public class SessionManagementService : ISessionManagementService
             var session = await _dbContext.UserSessions
                 .FirstOrDefaultAsync(s => s.SessionToken == sessionToken);
             
-            return session != null && session.IsActive && !session.IsExpired;
+            return session != null && session.IsActive && session.ExpiresAt > DateTime.UtcNow && session.LoggedOutAt == null;
         }
         catch (Exception ex)
         {
@@ -586,7 +636,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             var expiredTokens = await _dbContext.RefreshTokens
-                .Where(t => t.IsExpired)
+                .Where(t => t.ExpiresAt <= DateTime.UtcNow)
                 .ToListAsync();
 
             foreach (var token in expiredTokens)
@@ -746,7 +796,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             var expiredSessions = await _dbContext.UserSessions
-                .Where(s => s.IsExpired)
+                .Where(s => s.ExpiresAt <= DateTime.UtcNow || s.LoggedOutAt != null)
                 .ToListAsync();
 
             foreach (var session in expiredSessions)
@@ -827,12 +877,11 @@ public class SessionManagementService : ISessionManagementService
         {
             var sessions = await _dbContext.UserSessions
                 .Include(s => s.User)
-                .Where(s => s.UserId == userId && s.IsActive && !s.IsExpired)
+                .Where(s => s.UserId == userId && s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .OrderByDescending(s => s.LastActivityAt)
-                .Select(s => MapToUserSessionDto(s))
                 .ToListAsync();
 
-            return sessions;
+            return sessions.Select(MapToUserSessionDto).ToList();
         }
         catch (Exception ex)
         {
@@ -846,7 +895,7 @@ public class SessionManagementService : ISessionManagementService
         try
         {
             var activeSessions = await _dbContext.UserSessions
-                .Where(s => s.UserId == userId && s.IsActive && !s.IsExpired)
+                .Where(s => s.UserId == userId && s.IsActive && s.ExpiresAt > DateTime.UtcNow && s.LoggedOutAt == null)
                 .OrderBy(s => s.LastActivityAt)
                 .ToListAsync();
 
@@ -901,16 +950,22 @@ public class SessionManagementService : ISessionManagementService
         return new UserSessionDto
         {
             Id = session.Id,
+            SessionId = session.Id.ToString(),
             UserId = session.UserId,
             UserName = session.User?.Username ?? "Unknown",
             UserEmail = session.User?.Email ?? "Unknown",
+            FirstName = session.User?.FirstName ?? "Unknown",
+            LastName = session.User?.LastName ?? "Unknown",
+            Department = session.User?.Department ?? "Unknown",
             IpAddress = session.IpAddress,
             UserAgent = session.UserAgent,
             DeviceName = session.DeviceName,
             DeviceType = session.DeviceType,
             BrowserName = session.BrowserName,
             OperatingSystem = session.OperatingSystem,
+            DeviceInfo = $"{session.DeviceType} - {session.BrowserName}",
             CreatedAt = session.CreatedAt,
+            LoginAt = session.CreatedAt,
             LastActivityAt = session.LastActivityAt,
             ExpiresAt = session.ExpiresAt,
             LoggedOutAt = session.LoggedOutAt,

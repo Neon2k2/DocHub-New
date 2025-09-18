@@ -9,6 +9,9 @@ public class UserSessionDto
     [JsonPropertyName("id")]
     public Guid Id { get; set; }
 
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
     [JsonPropertyName("userId")]
     public Guid UserId { get; set; }
 
@@ -17,6 +20,15 @@ public class UserSessionDto
 
     [JsonPropertyName("userEmail")]
     public string UserEmail { get; set; } = string.Empty;
+
+    [JsonPropertyName("firstName")]
+    public string FirstName { get; set; } = string.Empty;
+
+    [JsonPropertyName("lastName")]
+    public string LastName { get; set; } = string.Empty;
+
+    [JsonPropertyName("department")]
+    public string Department { get; set; } = string.Empty;
 
     [JsonPropertyName("ipAddress")]
     public string IpAddress { get; set; } = string.Empty;
@@ -36,8 +48,14 @@ public class UserSessionDto
     [JsonPropertyName("operatingSystem")]
     public string? OperatingSystem { get; set; }
 
+    [JsonPropertyName("deviceInfo")]
+    public string DeviceInfo { get; set; } = string.Empty;
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("loginAt")]
+    public DateTime LoginAt { get; set; }
 
     [JsonPropertyName("lastActivityAt")]
     public DateTime LastActivityAt { get; set; }
@@ -93,11 +111,32 @@ public class SessionStatsDto
     [JsonPropertyName("totalSessions")]
     public int TotalSessions { get; set; }
 
+    [JsonPropertyName("totalActiveSessions")]
+    public int TotalActiveSessions { get; set; }
+
     [JsonPropertyName("activeSessions")]
     public int ActiveSessions { get; set; }
 
     [JsonPropertyName("expiredSessions")]
     public int ExpiredSessions { get; set; }
+
+    [JsonPropertyName("totalSessionsToday")]
+    public int TotalSessionsToday { get; set; }
+
+    [JsonPropertyName("totalSessionsThisWeek")]
+    public int TotalSessionsThisWeek { get; set; }
+
+    [JsonPropertyName("totalSessionsThisMonth")]
+    public int TotalSessionsThisMonth { get; set; }
+
+    [JsonPropertyName("uniqueUsersToday")]
+    public int UniqueUsersToday { get; set; }
+
+    [JsonPropertyName("uniqueUsersThisWeek")]
+    public int UniqueUsersThisWeek { get; set; }
+
+    [JsonPropertyName("uniqueUsersThisMonth")]
+    public int UniqueUsersThisMonth { get; set; }
 
     [JsonPropertyName("sessionsByDeviceType")]
     public Dictionary<string, int> SessionsByDeviceType { get; set; } = new();
@@ -107,6 +146,12 @@ public class SessionStatsDto
 
     [JsonPropertyName("sessionsByOperatingSystem")]
     public Dictionary<string, int> SessionsByOperatingSystem { get; set; } = new();
+
+    [JsonPropertyName("sessionsByDepartment")]
+    public Dictionary<string, int> SessionsByDepartment { get; set; } = new();
+
+    [JsonPropertyName("sessionsByHour")]
+    public Dictionary<string, int> SessionsByHour { get; set; } = new();
 
     [JsonPropertyName("averageSessionDuration")]
     public TimeSpan AverageSessionDuration { get; set; }
